@@ -4,12 +4,13 @@ requireAuth();
 
 // S'assure que le dépôt est bien cloné et que usercustomization existe
 $userCustomizationPath = getSessionUserCustomizationPath();
+$currentLang = getLanguage();
 ?>
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="<?= $currentLang ?>">
 <head>
     <meta charset="UTF-8">
-    <title>Éditeur usercustomization</title>
+    <title><?= htmlspecialchars(t('editor.title')) ?></title>
     <style>
         body { font-family: Arial, sans-serif; display: flex; height: 100vh; margin: 0; }
         .sidebar { width: 320px; border-right: 1px solid #ccc; padding: 10px; box-sizing: border-box; overflow-y: auto; }
@@ -33,11 +34,11 @@ $userCustomizationPath = getSessionUserCustomizationPath();
         input[type="text"] { width: 100%; box-sizing: border-box; }
         button { margin-right: 5px; }
         hr { margin: 12px 0; border: none; border-top: 1px solid #ddd; }
-        .srv-folder-toggle { 
-            cursor: pointer; 
-            display: inline-block; 
-            width: 14px; 
-            text-align: center; 
+        .srv-folder-toggle {
+            cursor: pointer;
+            display: inline-block;
+            width: 14px;
+            text-align: center;
             margin-right: 2px;
             color: #666;
             font-weight: bold;
@@ -49,45 +50,63 @@ $userCustomizationPath = getSessionUserCustomizationPath();
         .srv-folder-content.expanded { display: block; }
         .srv-folder-name { cursor: pointer; font-weight: bold; color: #333; }
         .srv-folder-name:hover { text-decoration: underline; }
+        .lang-selector { text-align: right; margin-bottom: 8px; font-size: 13px; }
+        .lang-selector a { margin: 0 4px; text-decoration: none; color: #007bff; }
+        .lang-selector a.active { font-weight: bold; }
     </style>
 </head>
 <body>
     <div class="sidebar">
-        <h3>usercustomization/</h3>
-        <div id="tree">Chargement...</div>
+        <div class="lang-selector">
+            <a href="?lang=fr" class="<?= $currentLang === 'fr' ? 'active' : '' ?>">FR</a>
+            <span>|</span>
+            <a href="?lang=en" class="<?= $currentLang === 'en' ? 'active' : '' ?>">EN</a>
+        </div>
+        <h3><?= htmlspecialchars(t('editor.usercustomization')) ?></h3>
+        <div id="tree"><?= htmlspecialchars(t('editor.loading')) ?></div>
         <hr>
         <div>
-            <h4>Nouvel élément</h4>
-            <label>Chemin relatif (ex: class/USERCUSTOMIZATION.var):</label>
+            <h4><?= htmlspecialchars(t('editor.new_item')) ?></h4>
+            <label><?= htmlspecialchars(t('editor.path_relative')) ?></label>
             <input type="text" id="newPath">
             <label>
-                <input type="checkbox" id="isDir" onchange="updateCreateExecutable()"> Dossier
+                <input type="checkbox" id="isDir" onchange="updateCreateExecutable()"> <?= htmlspecialchars(t('editor.is_directory')) ?>
             </label>
             <label id="createExecutableLabel" style="display: none;">
-                <input type="checkbox" id="createExecutable"> Exécutable (chmod +x)
+                <input type="checkbox" id="createExecutable"> <?= htmlspecialchars(t('editor.executable')) ?>
             </label>
-            <button onclick="createPath()">Créer</button>
+            <button onclick="createPath()"><?= htmlspecialchars(t('editor.create')) ?></button>
         </div>
         <hr>
-        <h3>srv_fai_config/ (lecture seule)</h3>
-        <div id="srvTree">Chargement...</div>
+        <h3><?= htmlspecialchars(t('editor.srv_fai_config')) ?></h3>
+        <div id="srvTree"><?= htmlspecialchars(t('editor.loading')) ?></div>
     </div>
     <div class="main">
         <div class="toolbar">
             <span class="path" id="currentPath"></span>
-            <label id="executableToggle" class="executable-toggle disabled" title="Rendre le fichier exécutable (chmod +x)">
+            <label id="executableToggle" class="executable-toggle disabled" title="<?= htmlspecialchars(t('editor.executable_title')) ?>">
                 <input type="checkbox" id="executableCheckbox" onchange="toggleExecutable()" disabled>
-                Exécutable (chmod +x)
+                <?= htmlspecialchars(t('editor.executable')) ?>
             </label>
-            <button onclick="saveFile()">Enregistrer</button>
-            <button onclick="deletePath()">Supprimer</button>
+            <button onclick="saveFile()"><?= htmlspecialchars(t('editor.save')) ?></button>
+            <button onclick="deletePath()"><?= htmlspecialchars(t('editor.delete')) ?></button>
         </div>
         <div class="editor">
-            <textarea id="editorArea" placeholder="Sélectionnez un fichier dans l'arborescence pour l'éditer"></textarea>
+            <textarea id="editorArea" placeholder="<?= htmlspecialchars(t('editor.select_file')) ?>"></textarea>
         </div>
     </div>
 
     <script>
+        const translations = {
+            empty: <?= json_encode(t('editor.empty')) ?>,
+            readonly: <?= json_encode(t('editor.readonly')) ?>,
+            chmod_error: <?= json_encode(t('editor.chmod_error')) ?>,
+            no_editable_file: <?= json_encode(t('editor.no_editable_file')) ?>,
+            no_deletable_file: <?= json_encode(t('editor.no_deletable_file')) ?>,
+            delete_confirm: <?= json_encode(t('editor.delete_confirm')) ?>,
+            path_required: <?= json_encode(t('editor.path_required')) ?>
+        };
+
         let currentFile = null;
         let isReadOnly = false;
 
@@ -120,7 +139,7 @@ $userCustomizationPath = getSessionUserCustomizationPath();
         }
 
         function renderTree(node, prefix) {
-            if (!node || !node.children) return '<p>Vide</p>';
+            if (!node || !node.children) return '<p>' + escapeHtml(translations.empty) + '</p>';
             let html = '<ul>';
             node.children.forEach(child => {
                 const path = prefix ? prefix + '/' + child.name : child.name;
@@ -141,16 +160,15 @@ $userCustomizationPath = getSessionUserCustomizationPath();
 
         function renderSrvTree(node, prefix, depth = 0) {
             if (!node || !node.children || node.children.length === 0) {
-                if (depth === 0) return '<p>Vide</p>';
+                if (depth === 0) return '<p>' + escapeHtml(translations.empty) + '</p>';
                 return '';
             }
-            
+
             let html = '<ul>';
             node.children.forEach((child) => {
                 const path = prefix ? prefix + '/' + child.name : child.name;
-                // Créer un ID unique basé sur le chemin (safe pour HTML)
                 const safeId = 'srv_' + path.replace(/[^a-zA-Z0-9]/g, '_');
-                
+
                 if (child.type === 'dir') {
                     const safeName = escapeHtml(child.name);
                     html += '<li>';
@@ -165,7 +183,7 @@ $userCustomizationPath = getSessionUserCustomizationPath();
                     const safePath = encodeURIComponent(path).replace(/'/g, '%27');
                     html += '<li style="padding-left: 16px; margin-left: 0;">';
                     html += '<a onclick="openSrvFile(\'' + safePath + '\')" style="color: #6c757d;">' + safeName + '</a>';
-                    html += ' <span style="color: #999; font-size: 0.85em;">(lecture seule)</span>';
+                    html += ' <span style="color: #999; font-size: 0.85em;">' + escapeHtml(translations.readonly) + '</span>';
                     html += '</li>';
                 }
             });
@@ -176,9 +194,9 @@ $userCustomizationPath = getSessionUserCustomizationPath();
         function toggleSrvFolder(id) {
             const content = document.getElementById('content_' + id);
             const toggle = document.getElementById('toggle_' + id);
-            
+
             if (!content || !toggle) return;
-            
+
             if (content.classList.contains('expanded')) {
                 content.classList.remove('expanded');
                 toggle.textContent = '+';
@@ -216,9 +234,9 @@ $userCustomizationPath = getSessionUserCustomizationPath();
                         alert(data.error);
                         return;
                     }
-                    currentFile = null; // Pas de fichier éditables
+                    currentFile = null;
                     isReadOnly = true;
-                    document.getElementById('currentPath').textContent = 'srv_fai_config/' + relPath + ' (lecture seule)';
+                    document.getElementById('currentPath').textContent = 'srv_fai_config/' + relPath + ' ' + translations.readonly;
                     document.getElementById('editorArea').value = data.content;
                     document.getElementById('editorArea').readOnly = true;
                     setExecutableCheckbox(false);
@@ -277,14 +295,14 @@ $userCustomizationPath = getSessionUserCustomizationPath();
                     setExecutableCheckbox(!!data.executable);
                 })
                 .catch(() => {
-                    alert('Erreur lors de la modification des permissions');
+                    alert(translations.chmod_error);
                     setExecutableCheckbox(!executable);
                 });
         }
 
         function saveFile() {
             if (!currentFile || isReadOnly) {
-                alert('Aucun fichier éditable sélectionné');
+                alert(translations.no_editable_file);
                 return;
             }
             const body = new FormData();
@@ -301,10 +319,10 @@ $userCustomizationPath = getSessionUserCustomizationPath();
 
         function deletePath() {
             if (!currentFile || isReadOnly) {
-                alert('Aucun fichier supprimable sélectionné');
+                alert(translations.no_deletable_file);
                 return;
             }
-            if (!confirm('Supprimer ' + currentFile + ' ?')) return;
+            if (!confirm(translations.delete_confirm.replace('{path}', currentFile))) return;
             const body = new FormData();
             body.append('action', 'delete');
             body.append('path', currentFile);
@@ -330,7 +348,7 @@ $userCustomizationPath = getSessionUserCustomizationPath();
             const relPath = document.getElementById('newPath').value.trim();
             const isDir = document.getElementById('isDir').checked;
             if (!relPath) {
-                alert('Chemin requis');
+                alert(translations.path_required);
                 return;
             }
             const body = new FormData();
@@ -355,13 +373,10 @@ $userCustomizationPath = getSessionUserCustomizationPath();
                 });
         }
 
-        // Initialiser l'état des boutons au chargement
         updateToolbarButtons();
-        
         loadTree();
         loadSrvTree();
-        
-        // Si on vient du dashboard après sauvegarde, on peut ouvrir automatiquement le fichier USERCUSTOMIZATION.var
+
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('open') === 'USERCUSTOMIZATION.var') {
             setTimeout(() => {
@@ -371,4 +386,3 @@ $userCustomizationPath = getSessionUserCustomizationPath();
     </script>
 </body>
 </html>
-

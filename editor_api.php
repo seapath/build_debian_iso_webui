@@ -7,7 +7,7 @@ header('Content-Type: application/json');
 $base = realpath(getSessionUserCustomizationPath());
 
 if ($base === false) {
-    echo json_encode(['error' => 'usercustomization introuvable']);
+    echo json_encode(['error' => t('editor.error.usercustomization_not_found')]);
     exit;
 }
 
@@ -123,7 +123,7 @@ if ($method === 'GET') {
         $rel = $_GET['path'] ?? '';
         $target = resolvePath($base, $rel);
         if (!$target || !is_file($target)) {
-            echo json_encode(['error' => 'Fichier introuvable']);
+            echo json_encode(['error' => t('editor.error.file_not_found')]);
             exit;
         }
         echo json_encode([
@@ -139,20 +139,20 @@ if ($method === 'GET') {
         $repoPath = getSessionRepoPath();
         $srvFaiConfigBase = $repoPath . '/srv_fai_config';
         if (!is_dir($srvFaiConfigBase)) {
-            echo json_encode(['error' => 'srv_fai_config introuvable']);
+            echo json_encode(['error' => t('editor.error.srv_not_found')]);
             exit;
         }
         $relative = normalizePath($rel);
         $target = $srvFaiConfigBase . '/' . $relative;
         $real = realpath($target);
         if ($real === false || !is_file($real)) {
-            echo json_encode(['error' => 'Fichier introuvable']);
+            echo json_encode(['error' => t('editor.error.file_not_found')]);
             exit;
         }
         // Vérification de sécurité : s'assurer que le fichier est bien dans srv_fai_config
         $realBase = realpath($srvFaiConfigBase);
         if ($realBase === false || strpos($real, $realBase) !== 0) {
-            echo json_encode(['error' => 'Chemin invalide']);
+            echo json_encode(['error' => t('editor.error.invalid_path')]);
             exit;
         }
         echo json_encode([
@@ -162,7 +162,7 @@ if ($method === 'GET') {
         exit;
     }
 
-    echo json_encode(['error' => 'Action invalide']);
+    echo json_encode(['error' => t('editor.error.invalid_action')]);
     exit;
 }
 
@@ -174,7 +174,7 @@ if ($action === 'save') {
     $content = $_POST['content'] ?? '';
     $target = resolvePath($base, $rel);
     if (!$target) {
-        echo json_encode(['error' => 'Chemin invalide']);
+        echo json_encode(['error' => t('editor.error.invalid_path')]);
         exit;
     }
     $dir = dirname($target);
@@ -201,7 +201,7 @@ if ($action === 'delete') {
     $rel = $_POST['path'] ?? '';
     $target = resolvePath($base, $rel);
     if (!$target || !file_exists($target)) {
-        echo json_encode(['error' => 'Chemin introuvable']);
+        echo json_encode(['error' => t('editor.error.path_not_found')]);
         exit;
     }
     if (is_dir($target)) {
@@ -228,7 +228,7 @@ if ($action === 'create') {
     $type = $_POST['type'] ?? 'file';
     $target = resolvePath($base, $rel);
     if (!$target) {
-        echo json_encode(['error' => 'Chemin invalide']);
+        echo json_encode(['error' => t('editor.error.invalid_path')]);
         exit;
     }
     if ($type === 'dir') {
@@ -256,17 +256,17 @@ if ($action === 'chmod') {
     $executable = isset($_POST['executable']) && ($_POST['executable'] === '1' || $_POST['executable'] === 'true');
     $target = resolvePath($base, $rel);
     if (!$target || !is_file($target)) {
-        echo json_encode(['error' => 'Fichier introuvable']);
+        echo json_encode(['error' => t('editor.error.file_not_found')]);
         exit;
     }
     if (!setFileExecutable($target, $executable)) {
-        echo json_encode(['error' => 'Impossible de modifier les permissions']);
+        echo json_encode(['error' => t('editor.error.chmod_failed')]);
         exit;
     }
     echo json_encode(['ok' => true, 'executable' => isFileExecutable($target)]);
     exit;
 }
 
-echo json_encode(['error' => 'Action invalide']);
+echo json_encode(['error' => t('editor.error.invalid_action')]);
 exit;
 
