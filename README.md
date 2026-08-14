@@ -4,6 +4,26 @@ A lightweight web interface to configure and build [SEAPATH](https://github.com/
 
 ISOBuilder wraps the upstream `build_iso.sh` workflow with a browser-based dashboard: configure host settings, pick package classes and GRUB boot menu entries, customize FAI files, and launch builds with live log streaming.
 
+## Screenshots
+
+### Dashboard
+
+Configure hostname, credentials, SSH keys, package classes, and boot menu entries from a single page. Track builds and download finished ISOs.
+
+![Dashboard](docs/screenshots/dashboard.png)
+
+### usercustomization editor
+
+Browse and edit FAI customization files. The upstream `srv_fai_config/` tree is available read-only for reference.
+
+![Editor](docs/screenshots/editor.png)
+
+### Build logs
+
+Follow build output in real time. Download the ISO once the build completes.
+
+![Build logs](docs/screenshots/build-logs.png)
+
 ## Features
 
 - **Web dashboard** - configure hostname, passwords, SSH keys, and remote network settings from a single form
