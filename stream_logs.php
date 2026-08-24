@@ -16,6 +16,10 @@ if (!is_dir($buildPath)) {
 
 $logFile = $buildPath . '/logs.txt';
 $statusFile = $buildPath . '/status.txt';
+$artifact = getBuildArtifactInfo($buildPath);
+$downloadLabel = $artifact['target'] === 'qcow2'
+    ? t('logs.download_qcow2')
+    : t('logs.download_iso');
 ?>
 <!DOCTYPE html>
 <html lang="<?= $currentLang ?>">
@@ -104,7 +108,7 @@ $statusFile = $buildPath . '/status.txt';
     <div id="download" style="display: none; margin-top: 20px;">
         <h2><?= htmlspecialchars(t('logs.download')) ?></h2>
         <a href="download.php?id=<?= urlencode($buildId) ?>" style="padding: 10px 20px; background: #28a745; color: white; text-decoration: none; display: inline-block;">
-            <?= htmlspecialchars(t('logs.download_iso')) ?>
+            <?= htmlspecialchars($downloadLabel) ?>
         </a>
     </div>
     

@@ -8,16 +8,18 @@ if (empty($buildId)) {
 }
 
 $buildPath = BUILDS_PATH . '/' . $buildId;
-$isoFile = $buildPath . '/output.iso';
-
-if (!file_exists($isoFile)) {
-    die('ISO non disponible');
+if (!is_dir($buildPath)) {
+    die('Build introuvable');
 }
 
-// Envoyer le fichier
+$artifact = getBuildArtifactInfo($buildPath);
+if (!file_exists($artifact['file'])) {
+    die($artifact['target'] === 'qcow2' ? 'QCOW2 non disponible' : 'ISO non disponible');
+}
+
 header('Content-Type: application/octet-stream');
-header('Content-Disposition: attachment; filename="debian-' . $buildId . '.iso"');
-header('Content-Length: ' . filesize($isoFile));
-readfile($isoFile);
+header('Content-Disposition: attachment; filename="' . $artifact['download_filename'] . '"');
+header('Content-Length: ' . filesize($artifact['file']));
+readfile($artifact['file']);
 exit;
 ?>

@@ -144,10 +144,20 @@ if (empty($menuItemsLists) || !is_array($menuItemsLists)) {
     $menuItemsLists = [['french', 'cluster']];
 }
 
+$target = normalizeBuildTarget($_POST['target'] ?? 'iso');
+$vmDiskSize = trim((string) ($_POST['vmdisksize'] ?? '10G'));
+if (!isValidVmDiskSize($vmDiskSize)) {
+    $vmDiskSize = '10G';
+}
+$cloudInit = !empty($_POST['cloud_init']);
+
 $buildOptionsFile = $sessionUserCustomizationPath . '/build_options.json';
 $buildOptions = [
+    'target' => $target,
     'package_classes' => $packageClasses,
-    'menu_items' => $menuItemsLists
+    'menu_items' => $menuItemsLists,
+    'vmdisksize' => $vmDiskSize,
+    'cloud_init' => $cloudInit,
 ];
 file_put_contents($buildOptionsFile, json_encode($buildOptions, JSON_PRETTY_PRINT));
 
@@ -162,7 +172,8 @@ $config = [
     'build_id' => $buildId,
     'user' => $_SESSION['username'],
     'timestamp' => date('Y-m-d H:i:s'),
-    'hostname' => $hostname
+    'hostname' => $hostname,
+    'target' => $target,
 ];
 file_put_contents($buildPath . '/config.json', json_encode($config, JSON_PRETTY_PRINT));
 
@@ -203,13 +214,24 @@ if (empty($menuArg)) {
     $menuArg = 'french,cluster';
 }
 
-// Construire la commande build_iso.sh avec les arguments (échapper les arguments complets)
-$buildCmd = './build_iso.sh';
-if (!empty($classesArg)) {
-    $buildCmd .= ' --classes ' . escapeshellarg($classesArg);
-}
-if (!empty($menuArg)) {
-    $buildCmd .= ' --menu ' . escapeshellarg($menuArg);
+// Construire la commande selon la cible (ISO ou QCOW2)
+if ($target === 'qcow2') {
+    $buildCmd = './build_qcow2.sh --vmdisksize ' . escapeshellarg($vmDiskSize);
+    if ($cloudInit) {
+        $buildCmd .= ' --cloud-init';
+    }
+    $outputFile = $buildPath . '/output.qcow2';
+    $artifactGlob = '*.qcow2';
+} else {
+    $buildCmd = './build_iso.sh';
+    if (!empty($classesArg)) {
+        $buildCmd .= ' --classes ' . escapeshellarg($classesArg);
+    }
+    if (!empty($menuArg)) {
+        $buildCmd .= ' --menu ' . escapeshellarg($menuArg);
+    }
+    $outputFile = $buildPath . '/output.iso';
+    $artifactGlob = '*.iso';
 }
 
 // Chemin absolu vers le script PHP pour démarrer le prochain build
@@ -228,9 +250,9 @@ cd {$sessionRepoPath}
 EXIT_CODE=\$?
 echo \$EXIT_CODE > {$buildPath}/exit_code.txt
 
-# Copier l'ISO généré si la build a réussi
+# Copier l'artefact généré si la build a réussi
 if [ \$EXIT_CODE -eq 0 ]; then
-    find {$sessionRepoPath} -name "*.iso" -type f -mmin -10 -exec mv {} {$buildPath}/output.iso \;
+    find {$sessionRepoPath} -name "{$artifactGlob}" -type f -mmin -10 -exec mv {} {$outputFile} \;
     echo "completed" > {$statusFile}
 else
     echo "failed" > {$statusFile}

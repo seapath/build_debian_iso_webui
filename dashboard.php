@@ -39,10 +39,13 @@ $buildIsoOptions = parseBuildIsoOptions();
 $availablePackageClasses = $buildIsoOptions['package_classes'];
 $availableMenuFlags = $buildIsoOptions['menu_flags'];
 
-// Lire les options de build (package classes et menu items) depuis build_options.json
+// Lire les options de build depuis build_options.json
 $buildOptionsFile = $sessionUserCustomizationPath . '/build_options.json';
 $savedPackageClasses = ['SEAPATH_CLUSTER']; // Valeur par défaut
 $savedMenuItems = [['french', 'cluster']]; // Valeur par défaut
+$savedTarget = 'iso';
+$savedVmDiskSize = '10G';
+$savedCloudInit = false;
 
 if (file_exists($buildOptionsFile)) {
     $buildOptionsJson = file_get_contents($buildOptionsFile);
@@ -54,6 +57,11 @@ if (file_exists($buildOptionsFile)) {
         if (isset($buildOptions['menu_items']) && is_array($buildOptions['menu_items']) && !empty($buildOptions['menu_items'])) {
             $savedMenuItems = $buildOptions['menu_items'];
         }
+        $savedTarget = normalizeBuildTarget($buildOptions['target'] ?? null);
+        if (!empty($buildOptions['vmdisksize']) && isValidVmDiskSize((string) $buildOptions['vmdisksize'])) {
+            $savedVmDiskSize = $buildOptions['vmdisksize'];
+        }
+        $savedCloudInit = !empty($buildOptions['cloud_init']);
     }
 }
 
@@ -256,6 +264,30 @@ $currentLang = getLanguage();
             margin: 0; 
             font-weight: normal;
             font-size: 0.75em;
+        }
+        .target-toggle {
+            display: flex;
+            width: fit-content;
+            margin: 0 0 12px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .target-toggle label {
+            margin: 0;
+            padding: 6px 16px;
+            cursor: pointer;
+            font-size: 0.8em;
+            font-weight: bold;
+            background: #f9f9f9;
+            min-width: auto;
+        }
+        .target-toggle input {
+            display: none;
+        }
+        .target-toggle label:has(input:checked) {
+            background: #007bff;
+            color: white;
         }
         .package-list { 
             display: flex; 
@@ -572,6 +604,18 @@ $currentLang = getLanguage();
                 
                 <div class="form-section">
                     <h2><?= htmlspecialchars(t('dashboard.build_options')) ?></h2>
+                    <div class="target-toggle" role="radiogroup" aria-label="<?= htmlspecialchars(t('dashboard.target')) ?>">
+                        <label>
+                            <input type="radio" name="target" value="iso" <?= $savedTarget === 'iso' ? 'checked' : '' ?> onchange="updateTargetOptions()">
+                            <?= htmlspecialchars(t('dashboard.target.iso')) ?>
+                        </label>
+                        <label>
+                            <input type="radio" name="target" value="qcow2" <?= $savedTarget === 'qcow2' ? 'checked' : '' ?> onchange="updateTargetOptions()">
+                            <?= htmlspecialchars(t('dashboard.target.qcow2')) ?>
+                        </label>
+                    </div>
+
+                    <div id="isoOptions"<?= $savedTarget === 'iso' ? '' : ' style="display:none"' ?>>
                     <h3><?= htmlspecialchars(t('dashboard.package_classes')) ?></h3>
                     <div class="form-group">
                         <div class="package-list">
@@ -594,6 +638,21 @@ $currentLang = getLanguage();
                         </div>
                     </div>
                     <input type="hidden" name="menu_items_json" id="menuItemsJson">
+                    </div>
+
+                    <div id="qcow2Options"<?= $savedTarget === 'qcow2' ? '' : ' style="display:none"' ?>>
+                    <div class="form-group">
+                        <label><?= htmlspecialchars(t('dashboard.vmdisksize')) ?></label>
+                        <input type="text" name="vmdisksize" value="<?= htmlspecialchars($savedVmDiskSize) ?>" placeholder="<?= htmlspecialchars(t('dashboard.vmdisksize.placeholder')) ?>" pattern="[0-9]+[KMGTkmgT]" title="<?= htmlspecialchars(t('dashboard.vmdisksize.placeholder')) ?>">
+                    </div>
+                    <div class="form-group">
+                        <label class="package-item" style="min-width: auto;">
+                            <input type="checkbox" name="cloud_init" value="1" <?= $savedCloudInit ? 'checked' : '' ?>>
+                            <span><?= htmlspecialchars(t('dashboard.cloud_init')) ?></span>
+                        </label>
+                    </div>
+                    <p style="margin: 4px 0 0 0; font-size: 0.75em; color: #666;"><?= htmlspecialchars(t('dashboard.cloud_init.help')) ?></p>
+                    </div>
                     
                     <div class="action-buttons" style="margin-top: 12px; padding-top: 10px; border-top: 1px solid #ddd;">
                         <button type="submit" name="action" value="save_and_build"><?= htmlspecialchars(t('dashboard.save_and_build')) ?></button>
@@ -636,6 +695,7 @@ $currentLang = getLanguage();
             'builds.status.unknown': <?= json_encode(t('dashboard.builds.status.unknown')) ?>,
             'builds.none': <?= json_encode(t('dashboard.builds.none')) ?>,
             'builds.id': <?= json_encode(t('dashboard.builds.id')) ?>,
+            'builds.type': <?= json_encode(t('dashboard.builds.type')) ?>,
             'builds.status': <?= json_encode(t('dashboard.builds.status')) ?>,
             'builds.date': <?= json_encode(t('dashboard.builds.date')) ?>,
             'builds.actions': <?= json_encode(t('dashboard.builds.actions')) ?>,
@@ -643,6 +703,9 @@ $currentLang = getLanguage();
             'builds.delete': <?= json_encode(t('dashboard.builds.delete')) ?>,
             'builds.delete_confirm': <?= json_encode(t('dashboard.builds.delete_confirm')) ?>,
             'builds.download_iso': <?= json_encode(t('dashboard.builds.download_iso')) ?>,
+            'builds.download_qcow2': <?= json_encode(t('dashboard.builds.download_qcow2')) ?>,
+            'target.iso': <?= json_encode(t('dashboard.target.iso')) ?>,
+            'target.qcow2': <?= json_encode(t('dashboard.target.qcow2')) ?>,
             'import.progress': <?= json_encode(t('dashboard.import.progress')) ?>,
             'import.error': <?= json_encode(t('dashboard.import.error')) ?>,
             'import.success': <?= json_encode(t('dashboard.import.success')) ?>,
@@ -689,14 +752,17 @@ $currentLang = getLanguage();
                         list.innerHTML = '<table>' +
                             '<thead><tr>' +
                             '<th>' + translations['builds.id'] + '</th>' +
+                            '<th style="width: 70px;">' + translations['builds.type'] + '</th>' +
                             '<th style="width: 90px;">' + translations['builds.status'] + '</th>' +
                             '<th style="width: 130px;">' + translations['builds.date'] + '</th>' +
-                            '<th style="width: 150px;">' + translations['builds.actions'] + '</th>' +
+                            '<th style="width: 180px;">' + translations['builds.actions'] + '</th>' +
                             '</tr></thead><tbody>' +
                             builds.map(b => {
                                 const statusClass = getStatusClass(b.status);
                                 const shortDate = b.timestamp ? b.timestamp.substring(0, 16) : '';
                                 const queuePosition = b.queue_position || null;
+                                const target = b.target === 'qcow2' ? 'qcow2' : 'iso';
+                                const targetLabel = translations['target.' + target];
                                 let actions = '<a href="stream_logs.php?id=' + encodeURIComponent(b.id) + '">' + translations['builds.logs'] + '</a>';
                                 
                                 // Bouton Supprimer pour les builds en attente
@@ -704,14 +770,18 @@ $currentLang = getLanguage();
                                     actions += ' | <a href="delete_build.php?id=' + encodeURIComponent(b.id) + '" onclick="return confirm(\'' + translations['builds.delete_confirm'] + '\');" style="color: #dc3545;">' + translations['builds.delete'] + '</a>';
                                 }
                                 
-                                // Bouton Télécharger ISO pour les builds terminés
+                                // Bouton Télécharger pour les builds terminés
                                 if (b.status === 'completed') {
-                                    actions += ' | <a href="download.php?id=' + encodeURIComponent(b.id) + '" style="color: #28a745;">' + translations['builds.download_iso'] + '</a>';
+                                    const downloadLabel = target === 'qcow2'
+                                        ? translations['builds.download_qcow2']
+                                        : translations['builds.download_iso'];
+                                    actions += ' | <a href="download.php?id=' + encodeURIComponent(b.id) + '" style="color: #28a745;">' + downloadLabel + '</a>';
                                 }
                                 
                                 const buildIdDisplay = b.user ? `${b.id} (${b.user})` : b.id;
                                 return `<tr>` +
                                     `<td>${buildIdDisplay}</td>` +
+                                    `<td>${targetLabel}</td>` +
                                     `<td><span class="${statusClass}">${getStatusLabel(b.status, queuePosition)}</span></td>` +
                                     `<td>${shortDate}</td>` +
                                     `<td>${actions}</td>` +
@@ -769,6 +839,18 @@ $currentLang = getLanguage();
             form.reset();
         }
         
+        function updateTargetOptions() {
+            const target = document.querySelector('input[name="target"]:checked')?.value || 'iso';
+            const isIso = target === 'iso';
+            document.getElementById('isoOptions').style.display = isIso ? '' : 'none';
+            document.getElementById('qcow2Options').style.display = isIso ? 'none' : '';
+            const diskInput = document.querySelector('input[name="vmdisksize"]');
+            if (diskInput) {
+                diskInput.required = !isIso;
+            }
+        }
+        updateTargetOptions();
+
         // Gestion des Boot Menu Items (flags issus de build_iso.sh)
         const menuItemOptions = <?= json_encode(array_values($availableMenuFlags), JSON_UNESCAPED_UNICODE) ?>;
         // Initialiser avec les valeurs sauvegardées depuis PHP

@@ -303,6 +303,71 @@ function parseBuildIsoOptions(?string $repoPath = null): array
 }
 
 /**
+ * Normalise la cible de build (iso par défaut, pour rétrocompatibilité).
+ */
+function normalizeBuildTarget(?string $target): string
+{
+    return $target === 'qcow2' ? 'qcow2' : 'iso';
+}
+
+/**
+ * Valide une taille de disque QCOW2 au format fai-diskimage (ex: 10G, 512M).
+ */
+function isValidVmDiskSize(string $size): bool
+{
+    return (bool) preg_match('/^\d+[KMGT]$/i', $size);
+}
+
+/**
+ * Décrit l'artefact produit par un build (fichier, extension, nom de téléchargement).
+ *
+ * @return array{target: string, file: string, download_filename: string, extension: string}
+ */
+function getBuildArtifactInfo(string $buildPath, ?array $config = null): array
+{
+    if ($config === null) {
+        $configFile = $buildPath . '/config.json';
+        $config = [];
+        if (is_readable($configFile)) {
+            $decoded = json_decode((string) file_get_contents($configFile), true);
+            if (is_array($decoded)) {
+                $config = $decoded;
+            }
+        }
+    }
+
+    $target = normalizeBuildTarget($config['target'] ?? null);
+    $qcow2File = $buildPath . '/output.qcow2';
+    $isoFile = $buildPath . '/output.iso';
+
+    // Builds anciens sans champ target : on déduit du fichier présent
+    if (!isset($config['target'])) {
+        if (file_exists($qcow2File)) {
+            $target = 'qcow2';
+        } elseif (file_exists($isoFile)) {
+            $target = 'iso';
+        }
+    }
+
+    $buildId = basename($buildPath);
+    if ($target === 'qcow2') {
+        return [
+            'target' => 'qcow2',
+            'file' => $qcow2File,
+            'download_filename' => 'debian-' . $buildId . '.qcow2',
+            'extension' => 'qcow2',
+        ];
+    }
+
+    return [
+        'target' => 'iso',
+        'file' => $isoFile,
+        'download_filename' => 'debian-' . $buildId . '.iso',
+        'extension' => 'iso',
+    ];
+}
+
+/**
  * Indique si une valeur doit être entourée de quotes simples dans USERCUSTOMIZATION.var
  */
 function needsVarFileQuoting(string $value): bool
