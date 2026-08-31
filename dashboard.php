@@ -34,10 +34,18 @@ $formREMOTEADDR = $existingVars['REMOTEADDR'] ?? '';
 $formREMOTEGW = $existingVars['REMOTEGW'] ?? '';
 $formREMOTEVLANID = $existingVars['REMOTEVLANID'] ?? '';
 
-// Options supportées par build_iso.sh du dépôt cloné (branche courante)
+// Options supportées par build_iso.sh du dépôt cloné (branche/tag courant)
 $buildIsoOptions = parseBuildIsoOptions();
 $availablePackageClasses = $buildIsoOptions['package_classes'];
 $availableMenuFlags = $buildIsoOptions['menu_flags'];
+$qcow2Supported = repoSupportsQcow2();
+$selectedRepoRef = getSelectedRepoRef();
+$repoRefs = listSeapathRepoRefs();
+if (!in_array($selectedRepoRef, $repoRefs['branches'], true)
+    && !in_array($selectedRepoRef, $repoRefs['tags'], true)
+) {
+    $repoRefs['branches'][] = $selectedRepoRef;
+}
 
 // Lire les options de build depuis build_options.json
 $buildOptionsFile = $sessionUserCustomizationPath . '/build_options.json';
@@ -63,6 +71,10 @@ if (file_exists($buildOptionsFile)) {
         }
         $savedCloudInit = !empty($buildOptions['cloud_init']);
     }
+}
+
+if (!$qcow2Supported) {
+    $savedTarget = 'iso';
 }
 
 // Ne garder que les options encore supportées par la branche clonée
@@ -265,6 +277,28 @@ $currentLang = getLanguage();
             font-weight: normal;
             font-size: 0.75em;
         }
+        .repo-ref-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+        .repo-ref-row label {
+            min-width: 120px;
+            font-weight: bold;
+            font-size: 0.8em;
+            margin: 0;
+        }
+        .repo-ref-row select {
+            flex: 1;
+            min-width: 160px;
+        }
+        .repo-ref-help {
+            margin: 0 0 12px 0;
+            font-size: 0.75em;
+            color: #666;
+        }
         .target-toggle {
             display: flex;
             width: fit-content;
@@ -327,6 +361,7 @@ $currentLang = getLanguage();
             margin-top: 12px;
             padding-top: 12px;
             border-top: 2px solid #eee;
+            overflow-x: auto;
         }
         /* Modal styles */
         .modal {
@@ -410,7 +445,7 @@ $currentLang = getLanguage();
             font-family: monospace;
             font-size: 0.8em;
         }
-        .builds-section td:nth-child(3) {
+        .builds-section td:nth-child(5) {
             font-size: 0.8em;
             color: #666;
             white-space: nowrap;
@@ -544,6 +579,18 @@ $currentLang = getLanguage();
                 <?= htmlspecialchars(t('dashboard.queued')) ?>
             </div>
         <?php endif; ?>
+        
+        <?php if (isset($_GET['ref_switched'])): ?>
+            <div class="alert alert-success">
+                <?= htmlspecialchars(t('dashboard.repo_ref.switched')) ?>
+            </div>
+        <?php endif; ?>
+        
+        <?php if (isset($_GET['ref_error'])): ?>
+            <div class="alert" style="background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;">
+                <?= htmlspecialchars(t('dashboard.repo_ref.error')) ?>
+            </div>
+        <?php endif; ?>
     
         <form id="buildForm" method="POST" action="build.php">
             <div class="content-wrapper">
@@ -604,6 +651,30 @@ $currentLang = getLanguage();
                 
                 <div class="form-section">
                     <h2><?= htmlspecialchars(t('dashboard.build_options')) ?></h2>
+                    <div class="repo-ref-row">
+                        <label for="repoRefSelect"><?= htmlspecialchars(t('dashboard.repo_ref')) ?></label>
+                        <select id="repoRefSelect">
+                            <?php if (!empty($repoRefs['branches'])): ?>
+                            <optgroup label="<?= htmlspecialchars(t('dashboard.repo_ref.branches')) ?>">
+                                <?php foreach ($repoRefs['branches'] as $branchName): ?>
+                                <option value="<?= htmlspecialchars($branchName) ?>" <?= $branchName === $selectedRepoRef ? 'selected' : '' ?>><?= htmlspecialchars($branchName) ?></option>
+                                <?php endforeach; ?>
+                            </optgroup>
+                            <?php endif; ?>
+                            <?php if (!empty($repoRefs['tags'])): ?>
+                            <optgroup label="<?= htmlspecialchars(t('dashboard.repo_ref.tags')) ?>">
+                                <?php foreach ($repoRefs['tags'] as $tagName): ?>
+                                <option value="<?= htmlspecialchars($tagName) ?>" <?= $tagName === $selectedRepoRef ? 'selected' : '' ?>><?= htmlspecialchars($tagName) ?></option>
+                                <?php endforeach; ?>
+                            </optgroup>
+                            <?php endif; ?>
+                        </select>
+                        <button type="button" onclick="applyRepoRef()" class="btn"><?= htmlspecialchars(t('dashboard.repo_ref.apply')) ?></button>
+                        <button type="button" onclick="refreshRepoRefs()" class="btn btn-secondary"><?= htmlspecialchars(t('dashboard.repo_ref.refresh')) ?></button>
+                    </div>
+                    <p class="repo-ref-help"><?= htmlspecialchars(t('dashboard.repo_ref.help')) ?></p>
+                    <span id="repoRefMessage"></span>
+                    <?php if ($qcow2Supported): ?>
                     <div class="target-toggle" role="radiogroup" aria-label="<?= htmlspecialchars(t('dashboard.target')) ?>">
                         <label>
                             <input type="radio" name="target" value="iso" <?= $savedTarget === 'iso' ? 'checked' : '' ?> onchange="updateTargetOptions()">
@@ -614,6 +685,9 @@ $currentLang = getLanguage();
                             <?= htmlspecialchars(t('dashboard.target.qcow2')) ?>
                         </label>
                     </div>
+                    <?php else: ?>
+                    <input type="hidden" name="target" value="iso">
+                    <?php endif; ?>
 
                     <div id="isoOptions"<?= $savedTarget === 'iso' ? '' : ' style="display:none"' ?>>
                     <h3><?= htmlspecialchars(t('dashboard.package_classes')) ?></h3>
@@ -696,6 +770,7 @@ $currentLang = getLanguage();
             'builds.none': <?= json_encode(t('dashboard.builds.none')) ?>,
             'builds.id': <?= json_encode(t('dashboard.builds.id')) ?>,
             'builds.type': <?= json_encode(t('dashboard.builds.type')) ?>,
+            'builds.ref': <?= json_encode(t('dashboard.builds.ref')) ?>,
             'builds.status': <?= json_encode(t('dashboard.builds.status')) ?>,
             'builds.date': <?= json_encode(t('dashboard.builds.date')) ?>,
             'builds.actions': <?= json_encode(t('dashboard.builds.actions')) ?>,
@@ -715,8 +790,14 @@ $currentLang = getLanguage();
             'common.save_error': <?= json_encode(t('common.save_error')) ?>,
             'hash_password.empty': <?= json_encode(t('dashboard.hash_password.empty')) ?>,
             'hash_password.processing': <?= json_encode(t('dashboard.hash_password.processing')) ?>,
-            'hash_password.error': <?= json_encode(t('dashboard.hash_password.error')) ?>
+            'hash_password.error': <?= json_encode(t('dashboard.hash_password.error')) ?>,
+            'repo_ref.confirm': <?= json_encode(t('dashboard.repo_ref.confirm')) ?>,
+            'repo_ref.switching': <?= json_encode(t('dashboard.repo_ref.switching')) ?>,
+            'repo_ref.refreshing': <?= json_encode(t('dashboard.repo_ref.refreshing')) ?>,
+            'repo_ref.error': <?= json_encode(t('dashboard.repo_ref.error')) ?>,
+            'repo_ref.list_error': <?= json_encode(t('dashboard.repo_ref.list_error')) ?>
         };
+        const currentRepoRef = <?= json_encode($selectedRepoRef) ?>;
         
         function getStatusLabel(status, queuePosition) {
             const labels = {
@@ -753,6 +834,7 @@ $currentLang = getLanguage();
                             '<thead><tr>' +
                             '<th>' + translations['builds.id'] + '</th>' +
                             '<th style="width: 70px;">' + translations['builds.type'] + '</th>' +
+                            '<th style="width: 90px;">' + translations['builds.ref'] + '</th>' +
                             '<th style="width: 90px;">' + translations['builds.status'] + '</th>' +
                             '<th style="width: 130px;">' + translations['builds.date'] + '</th>' +
                             '<th style="width: 180px;">' + translations['builds.actions'] + '</th>' +
@@ -779,9 +861,11 @@ $currentLang = getLanguage();
                                 }
                                 
                                 const buildIdDisplay = b.user ? `${b.id} (${b.user})` : b.id;
+                                const repoRef = b.repo_ref ? b.repo_ref : '-';
                                 return `<tr>` +
                                     `<td>${buildIdDisplay}</td>` +
                                     `<td>${targetLabel}</td>` +
+                                    `<td style="font-family: monospace; font-size: 0.8em;">${repoRef}</td>` +
                                     `<td><span class="${statusClass}">${getStatusLabel(b.status, queuePosition)}</span></td>` +
                                     `<td>${shortDate}</td>` +
                                     `<td>${actions}</td>` +
@@ -842,14 +926,96 @@ $currentLang = getLanguage();
         function updateTargetOptions() {
             const target = document.querySelector('input[name="target"]:checked')?.value || 'iso';
             const isIso = target === 'iso';
-            document.getElementById('isoOptions').style.display = isIso ? '' : 'none';
-            document.getElementById('qcow2Options').style.display = isIso ? 'none' : '';
+            const isoOptions = document.getElementById('isoOptions');
+            const qcow2Options = document.getElementById('qcow2Options');
+            if (isoOptions) {
+                isoOptions.style.display = isIso ? '' : 'none';
+            }
+            if (qcow2Options) {
+                qcow2Options.style.display = isIso ? 'none' : '';
+            }
             const diskInput = document.querySelector('input[name="vmdisksize"]');
             if (diskInput) {
                 diskInput.required = !isIso;
             }
         }
         updateTargetOptions();
+
+        function setRepoRefMessage(text, color) {
+            const messageDiv = document.getElementById('repoRefMessage');
+            if (!messageDiv) {
+                return;
+            }
+            if (!text) {
+                messageDiv.innerHTML = '';
+                return;
+            }
+            messageDiv.innerHTML = '<span style="color: ' + color + '; font-size: 0.75em;">' + text + '</span>';
+        }
+
+        function applyRepoRef() {
+            const select = document.getElementById('repoRefSelect');
+            const ref = select ? select.value : '';
+            if (!ref) {
+                return;
+            }
+            if (!confirm(translations['repo_ref.confirm'])) {
+                select.value = currentRepoRef;
+                return;
+            }
+            const applyBtn = document.querySelector('button[onclick="applyRepoRef()"]');
+            const refreshBtn = document.querySelector('button[onclick="refreshRepoRefs()"]');
+            if (applyBtn) applyBtn.disabled = true;
+            if (refreshBtn) refreshBtn.disabled = true;
+            setRepoRefMessage(translations['repo_ref.switching'], '#17a2b8');
+            const formData = new FormData();
+            formData.append('ref', ref);
+            formData.append('action', 'switch');
+            fetch('switch_repo.php', { method: 'POST', body: formData })
+                .then(r => r.json().then(data => ({ ok: r.ok, data })))
+                .then(({ ok, data }) => {
+                    if (!ok || !data.ok) {
+                        setRepoRefMessage(translations['repo_ref.error'], '#dc3545');
+                        select.value = currentRepoRef;
+                        if (applyBtn) applyBtn.disabled = false;
+                        if (refreshBtn) refreshBtn.disabled = false;
+                        return;
+                    }
+                    window.location.href = 'dashboard.php?ref_switched=1';
+                })
+                .catch(() => {
+                    setRepoRefMessage(translations['repo_ref.error'], '#dc3545');
+                    select.value = currentRepoRef;
+                    if (applyBtn) applyBtn.disabled = false;
+                    if (refreshBtn) refreshBtn.disabled = false;
+                });
+        }
+
+        function refreshRepoRefs() {
+            const applyBtn = document.querySelector('button[onclick="applyRepoRef()"]');
+            const refreshBtn = document.querySelector('button[onclick="refreshRepoRefs()"]');
+            if (applyBtn) applyBtn.disabled = true;
+            if (refreshBtn) refreshBtn.disabled = true;
+            setRepoRefMessage(translations['repo_ref.refreshing'], '#17a2b8');
+            const formData = new FormData();
+            formData.append('action', 'refresh_list');
+            fetch('switch_repo.php', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.ok) {
+                        setRepoRefMessage(translations['repo_ref.list_error'], '#dc3545');
+                        if (applyBtn) applyBtn.disabled = false;
+                        if (refreshBtn) refreshBtn.disabled = false;
+                        return;
+                    }
+                    window.location.reload();
+                })
+                .catch(() => {
+                    setRepoRefMessage(translations['repo_ref.list_error'], '#dc3545');
+                    if (applyBtn) applyBtn.disabled = false;
+                    if (refreshBtn) refreshBtn.disabled = false;
+                });
+        }
 
         // Gestion des Boot Menu Items (flags issus de build_iso.sh)
         const menuItemOptions = <?= json_encode(array_values($availableMenuFlags), JSON_UNESCAPED_UNICODE) ?>;

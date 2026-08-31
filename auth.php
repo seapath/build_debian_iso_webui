@@ -211,24 +211,4 @@ function logout() {
     // 3. Détruire la session
     session_destroy();
 }
-
-/**
- * Supprime récursivement un répertoire et son contenu
- */
-function deleteDirectory($dir) {
-    if (!is_dir($dir)) {
-        return;
-    }
-    
-    $files = array_diff(scandir($dir), ['.', '..']);
-    foreach ($files as $file) {
-        $path = $dir . '/' . $file;
-        if (is_dir($path)) {
-            deleteDirectory($path);
-        } else {
-            @unlink($path);
-        }
-    }
-    @rmdir($dir);
-}
 ?>

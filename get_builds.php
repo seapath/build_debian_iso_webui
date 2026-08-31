@@ -20,12 +20,14 @@ foreach ($dirs as $dir) {
     $timestamp = '';
     $user = '';
     $target = 'iso';
+    $repoRef = '';
     if (file_exists($configFile)) {
         $config = json_decode(file_get_contents($configFile), true);
         if (is_array($config)) {
             $timestamp = $config['timestamp'] ?? '';
             $user = $config['user'] ?? '';
             $target = getBuildArtifactInfo($dir, $config)['target'];
+            $repoRef = $config['repo_ref'] ?? '';
         }
     }
     
@@ -35,6 +37,7 @@ foreach ($dirs as $dir) {
         'timestamp' => $timestamp,
         'user' => $user,
         'target' => $target,
+        'repo_ref' => $repoRef,
     ];
     
     // Ajouter la position dans la file d'attente si le build est en attente

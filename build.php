@@ -145,6 +145,9 @@ if (empty($menuItemsLists) || !is_array($menuItemsLists)) {
 }
 
 $target = normalizeBuildTarget($_POST['target'] ?? 'iso');
+if ($target === 'qcow2' && !repoSupportsQcow2($sessionRepoPath)) {
+    $target = 'iso';
+}
 $vmDiskSize = trim((string) ($_POST['vmdisksize'] ?? '10G'));
 if (!isValidVmDiskSize($vmDiskSize)) {
     $vmDiskSize = '10G';
@@ -174,6 +177,7 @@ $config = [
     'timestamp' => date('Y-m-d H:i:s'),
     'hostname' => $hostname,
     'target' => $target,
+    'repo_ref' => getSelectedRepoRef(),
 ];
 file_put_contents($buildPath . '/config.json', json_encode($config, JSON_PRETTY_PRINT));
 

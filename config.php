@@ -15,9 +15,10 @@ define('MAX_CONCURRENT_BUILDS', 3);
 define('BUILD_MUTEX_FILE', BUILDS_PATH . '/.build_mutex');
 define('BUILD_QUEUE_FILE', BUILDS_PATH . '/.build_queue.json');
 
-// URL du dépôt SEAPATH et branche à utiliser
+// URL du dépôt SEAPATH et branche/tag par défaut (surchargeable depuis le dashboard)
 define('SEAPATH_REPO_URL', 'https://github.com/seapath/build_debian_iso.git');
 define('SEAPATH_REPO_BRANCH', 'main');
+define('SEAPATH_REFS_CACHE_TTL', 300);
 
 // Créer les répertoires de base s'ils n'existent pas
 foreach ([WORKSPACES_PATH, BUILDS_PATH] as $dir) {
@@ -30,6 +31,210 @@ foreach ([WORKSPACES_PATH, BUILDS_PATH] as $dir) {
 
 function generateBuildId() {
     return uniqid('build_', true);
+}
+
+/**
+ * Supprime récursivement un répertoire et son contenu
+ */
+function deleteDirectory($dir) {
+    if (!is_dir($dir)) {
+        return;
+    }
+
+    $files = array_diff(scandir($dir), ['.', '..']);
+    foreach ($files as $file) {
+        $path = $dir . '/' . $file;
+        if (is_dir($path)) {
+            deleteDirectory($path);
+        } else {
+            @unlink($path);
+        }
+    }
+    @rmdir($dir);
+}
+
+/**
+ * Vérifie qu'un nom de branche ou tag git est sûr à passer en argument.
+ */
+function isValidRepoRefName(string $ref): bool
+{
+    return (bool) preg_match('/^[A-Za-z0-9._\/-]+$/', $ref);
+}
+
+function getSelectedRepoRefFile(): string
+{
+    return getSessionWorkspacePath() . '/.seapath_ref';
+}
+
+/**
+ * Branche ou tag actuellement sélectionné pour le clone build_debian_iso.
+ */
+function getSelectedRepoRef(): string
+{
+    $file = getSelectedRepoRefFile();
+    if (is_readable($file)) {
+        $ref = trim((string) file_get_contents($file));
+        if (isValidRepoRefName($ref)) {
+            return $ref;
+        }
+    }
+
+    return SEAPATH_REPO_BRANCH;
+}
+
+function setSelectedRepoRef(string $ref): void
+{
+    if (!isValidRepoRefName($ref)) {
+        return;
+    }
+    file_put_contents(getSelectedRepoRefFile(), $ref);
+}
+
+/**
+ * Liste les branches et tags distants de build_debian_iso (cache 5 min).
+ *
+ * @return array{branches: string[], tags: string[]}
+ */
+function listSeapathRepoRefs(bool $forceRefresh = false): array
+{
+    $empty = ['branches' => [], 'tags' => []];
+    $cacheFile = WORKSPACES_PATH . '/.refs_cache.json';
+
+    if (!$forceRefresh && is_readable($cacheFile)) {
+        $cached = json_decode((string) file_get_contents($cacheFile), true);
+        if (is_array($cached)
+            && ($cached['fetched_at'] ?? 0) > time() - SEAPATH_REFS_CACHE_TTL
+            && isset($cached['refs']['branches'], $cached['refs']['tags'])
+        ) {
+            return $cached['refs'];
+        }
+    }
+
+    $cmd = sprintf(
+        'GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=20 ls-remote --heads --tags %s 2>/dev/null',
+        escapeshellarg(SEAPATH_REPO_URL)
+    );
+    $output = (string) shell_exec($cmd);
+    if ($output === '') {
+        return $empty;
+    }
+
+    $branches = [];
+    $tags = [];
+    foreach (explode("\n", $output) as $line) {
+        if (!preg_match('/^[0-9a-f]+\s+refs\/(heads|tags)\/(\S+)$/i', $line, $m)) {
+            continue;
+        }
+        $name = $m[2];
+        if (str_ends_with($name, '^{}')) {
+            continue;
+        }
+        if (!isValidRepoRefName($name)) {
+            continue;
+        }
+        if ($m[1] === 'heads') {
+            $branches[] = $name;
+        } else {
+            $tags[] = $name;
+        }
+    }
+
+    $branches = array_values(array_unique($branches));
+    $tags = array_values(array_unique($tags));
+
+    usort($branches, static function (string $a, string $b): int {
+        if ($a === 'main') {
+            return -1;
+        }
+        if ($b === 'main') {
+            return 1;
+        }
+        if ($a === 'master') {
+            return -1;
+        }
+        if ($b === 'master') {
+            return 1;
+        }
+        return strcasecmp($a, $b);
+    });
+
+    usort($tags, static function (string $a, string $b): int {
+        return version_compare($b, $a);
+    });
+
+    $refs = ['branches' => $branches, 'tags' => $tags];
+    @file_put_contents($cacheFile, json_encode([
+        'fetched_at' => time(),
+        'refs' => $refs,
+    ], JSON_PRETTY_PRINT));
+
+    return $refs;
+}
+
+/**
+ * Reclone le dépôt sur la ref demandée en conservant usercustomization/.
+ */
+function checkoutSeapathRepoRef(string $ref): bool
+{
+    if (!isValidRepoRefName($ref)) {
+        return false;
+    }
+
+    $workspace = getSessionWorkspacePath();
+    $repoPath = $workspace . '/build_debian_iso';
+    $newRepoPath = $workspace . '/build_debian_iso.new';
+
+    if (is_dir($newRepoPath)) {
+        deleteDirectory($newRepoPath);
+    }
+
+    $cmd = sprintf(
+        'GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 clone --branch %s --depth 1 %s %s 2>&1',
+        escapeshellarg($ref),
+        escapeshellarg(SEAPATH_REPO_URL),
+        escapeshellarg($newRepoPath)
+    );
+    shell_exec($cmd);
+
+    if (!is_dir($newRepoPath . '/.git')) {
+        if (is_dir($newRepoPath)) {
+            deleteDirectory($newRepoPath);
+        }
+        return false;
+    }
+
+    $oldCustom = $repoPath . '/usercustomization';
+    $newCustom = $newRepoPath . '/usercustomization';
+    if (is_dir($oldCustom)) {
+        if (is_dir($newCustom)) {
+            deleteDirectory($newCustom);
+        }
+        shell_exec(sprintf(
+            'cp -a %s %s',
+            escapeshellarg($oldCustom),
+            escapeshellarg($newCustom)
+        ));
+        if (!is_dir($newCustom)) {
+            deleteDirectory($newRepoPath);
+            return false;
+        }
+    }
+
+    if (is_dir($repoPath)) {
+        deleteDirectory($repoPath);
+    }
+    if (!@rename($newRepoPath, $repoPath)) {
+        return false;
+    }
+
+    setSelectedRepoRef($ref);
+    return true;
+}
+
+function repoSupportsQcow2(?string $repoPath = null): bool
+{
+    $repoPath = $repoPath ?? getSessionRepoPath();
+    return is_file($repoPath . '/build_qcow2.sh');
 }
 
 function isAuthenticated() {
@@ -78,14 +283,18 @@ function getSessionRepoPath(): string
             mkdir($workspace, 0755, true);
         }
 
-        // Clone shallow de la branche voulue
+        // Clone shallow de la branche/tag sélectionné
+        $ref = getSelectedRepoRef();
         $cmd = sprintf(
-            'cd %s && git clone --branch %s --depth 1 %s build_debian_iso 2>&1',
-            escapeshellarg($workspace),
-            escapeshellarg(SEAPATH_REPO_BRANCH),
-            escapeshellarg(SEAPATH_REPO_URL)
+            'GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 clone --branch %s --depth 1 %s %s 2>&1',
+            escapeshellarg($ref),
+            escapeshellarg(SEAPATH_REPO_URL),
+            escapeshellarg($repoPath)
         );
         shell_exec($cmd);
+        if (is_dir($repoPath . '/.git')) {
+            setSelectedRepoRef($ref);
+        }
     }
 
     return $repoPath;

@@ -20,6 +20,15 @@ $artifact = getBuildArtifactInfo($buildPath);
 $downloadLabel = $artifact['target'] === 'qcow2'
     ? t('logs.download_qcow2')
     : t('logs.download_iso');
+
+$repoRef = '';
+$configFile = $buildPath . '/config.json';
+if (is_readable($configFile)) {
+    $config = json_decode((string) file_get_contents($configFile), true);
+    if (is_array($config) && !empty($config['repo_ref'])) {
+        $repoRef = (string) $config['repo_ref'];
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="<?= $currentLang ?>">
@@ -99,6 +108,9 @@ $downloadLabel = $artifact['target'] === 'qcow2'
 <body>
     <div class="header">
         <h1><?= htmlspecialchars(t('logs.build', ['buildId' => $buildId])) ?></h1>
+        <?php if ($repoRef !== ''): ?>
+        <p style="margin: 6px 0 0 0; font-size: 0.85em; color: #9cdcfe;"><?= htmlspecialchars(t('logs.repo_ref', ['ref' => $repoRef])) ?></p>
+        <?php endif; ?>
         <a href="dashboard.php"><?= htmlspecialchars(t('logs.back')) ?></a>
     </div>
     
