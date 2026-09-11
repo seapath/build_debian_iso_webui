@@ -101,6 +101,10 @@ if (is_readable($configFile)) {
             display: inline-block;
             border-radius: 3px;
             font-size: 0.85em;
+            margin-right: 8px;
+        }
+        #download a.xml {
+            background: #17a2b8;
         }
         a { color: #4fc3f7; }
     </style>
@@ -122,6 +126,11 @@ if (is_readable($configFile)) {
         <a href="download.php?id=<?= urlencode($buildId) ?>" style="padding: 10px 20px; background: #28a745; color: white; text-decoration: none; display: inline-block;">
             <?= htmlspecialchars($downloadLabel) ?>
         </a>
+        <?php if (!empty($artifact['has_xml'])): ?>
+        <a class="xml" href="download.php?id=<?= urlencode($buildId) ?>&type=xml" style="padding: 10px 20px; background: #17a2b8; color: white; text-decoration: none; display: inline-block;">
+            <?= htmlspecialchars(t('logs.download_xml')) ?>
+        </a>
+        <?php endif; ?>
     </div>
     
     <script>

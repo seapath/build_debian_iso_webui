@@ -153,6 +153,7 @@ if (!isValidVmDiskSize($vmDiskSize)) {
     $vmDiskSize = '10G';
 }
 $cloudInit = !empty($_POST['cloud_init']);
+$libvirtOptions = libvirtOptionsFromRequest($_POST, $hostname);
 
 $buildOptionsFile = $sessionUserCustomizationPath . '/build_options.json';
 $buildOptions = [
@@ -161,6 +162,7 @@ $buildOptions = [
     'menu_items' => $menuItemsLists,
     'vmdisksize' => $vmDiskSize,
     'cloud_init' => $cloudInit,
+    'libvirt' => libvirtOptionsForStorage($libvirtOptions),
 ];
 file_put_contents($buildOptionsFile, json_encode($buildOptions, JSON_PRETTY_PRINT));
 
@@ -179,6 +181,11 @@ $config = [
     'target' => $target,
     'repo_ref' => getSelectedRepoRef(),
 ];
+if ($target === 'qcow2') {
+    $libvirtForBuild = $libvirtOptions;
+    $libvirtForBuild['uuid'] = generateLibvirtUuid();
+    $config['libvirt'] = $libvirtForBuild;
+}
 file_put_contents($buildPath . '/config.json', json_encode($config, JSON_PRETTY_PRINT));
 
 // Préparer la commande de build
