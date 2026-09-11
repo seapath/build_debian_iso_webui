@@ -21,12 +21,15 @@ foreach ($dirs as $dir) {
     $user = '';
     $target = 'iso';
     $repoRef = '';
+    $hasXml = false;
     if (file_exists($configFile)) {
         $config = json_decode(file_get_contents($configFile), true);
         if (is_array($config)) {
             $timestamp = $config['timestamp'] ?? '';
             $user = $config['user'] ?? '';
-            $target = getBuildArtifactInfo($dir, $config)['target'];
+            $artifact = getBuildArtifactInfo($dir, $config);
+            $target = $artifact['target'];
+            $hasXml = !empty($artifact['has_xml']);
             $repoRef = $config['repo_ref'] ?? '';
         }
     }
@@ -38,6 +41,7 @@ foreach ($dirs as $dir) {
         'user' => $user,
         'target' => $target,
         'repo_ref' => $repoRef,
+        'has_xml' => $hasXml,
     ];
     
     // Ajouter la position dans la file d'attente si le build est en attente

@@ -54,6 +54,7 @@ $savedMenuItems = [['french', 'cluster']]; // Valeur par défaut
 $savedTarget = 'iso';
 $savedVmDiskSize = '10G';
 $savedCloudInit = false;
+$savedLibvirt = defaultLibvirtOptions($formHostname);
 
 if (file_exists($buildOptionsFile)) {
     $buildOptionsJson = file_get_contents($buildOptionsFile);
@@ -70,6 +71,9 @@ if (file_exists($buildOptionsFile)) {
             $savedVmDiskSize = $buildOptions['vmdisksize'];
         }
         $savedCloudInit = !empty($buildOptions['cloud_init']);
+        if (isset($buildOptions['libvirt']) && is_array($buildOptions['libvirt'])) {
+            $savedLibvirt = normalizeLibvirtOptions($buildOptions['libvirt'], $formHostname);
+        }
     }
 }
 
@@ -205,7 +209,8 @@ $currentLang = getLanguage();
             flex-shrink: 0;
         }
         .form-group input[type="text"], 
-        .form-group input[type="password"], 
+        .form-group input[type="password"],
+        .form-group input[type="number"],
         .form-group select, 
         .form-group textarea { 
             flex: 1;
@@ -462,16 +467,30 @@ $currentLang = getLanguage();
         .status-failed { color: #dc3545; font-weight: bold; font-size: 0.9em; }
         .status-waiting { color: #17a2b8; font-weight: bold; font-size: 0.9em; }
         .status-unknown { color: #6c757d; font-size: 0.9em; }
-        .network-grid {
+        .network-grid,
+        .libvirt-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 8px;
         }
-        .network-grid .form-group {
+        .network-grid .form-group,
+        .libvirt-grid .form-group {
             margin: 0;
         }
+        .libvirt-help {
+            margin: 4px 0 10px 0;
+            font-size: 0.75em;
+            color: #666;
+        }
+        .libvirt-features {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 8px;
+        }
         @media (max-width: 768px) {
-            .network-grid {
+            .network-grid,
+            .libvirt-grid {
                 grid-template-columns: 1fr;
             }
         }
@@ -725,7 +744,50 @@ $currentLang = getLanguage();
                             <span><?= htmlspecialchars(t('dashboard.cloud_init')) ?></span>
                         </label>
                     </div>
-                    <p style="margin: 4px 0 0 0; font-size: 0.75em; color: #666;"><?= htmlspecialchars(t('dashboard.cloud_init.help')) ?></p>
+                    <p class="libvirt-help"><?= htmlspecialchars(t('dashboard.cloud_init.help')) ?></p>
+
+                    <h3><?= htmlspecialchars(t('dashboard.libvirt')) ?></h3>
+                    <p class="libvirt-help"><?= htmlspecialchars(t('dashboard.libvirt.help')) ?></p>
+                    <div class="form-group">
+                        <label for="libvirtName"><?= htmlspecialchars(t('dashboard.libvirt.name')) ?></label>
+                        <input type="text" id="libvirtName" name="libvirt_name" value="<?= htmlspecialchars($savedLibvirt['name']) ?>" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,62}" maxlength="63" title="<?= htmlspecialchars(t('dashboard.libvirt.name.placeholder')) ?>" placeholder="<?= htmlspecialchars(t('dashboard.libvirt.name.placeholder')) ?>">
+                    </div>
+                    <div class="libvirt-grid">
+                        <div class="form-group">
+                            <label for="libvirtVcpu"><?= htmlspecialchars(t('dashboard.libvirt.vcpu')) ?></label>
+                            <input type="number" id="libvirtVcpu" name="libvirt_vcpu" value="<?= (int) $savedLibvirt['vcpu'] ?>" min="1" max="128" step="1">
+                        </div>
+                        <div class="form-group">
+                            <label for="libvirtMemory"><?= htmlspecialchars(t('dashboard.libvirt.memory')) ?></label>
+                            <input type="number" id="libvirtMemory" name="libvirt_memory" value="<?= (int) $savedLibvirt['memory'] ?>" min="128" max="1048576" step="1">
+                        </div>
+                        <div class="form-group">
+                            <label for="libvirtBridge"><?= htmlspecialchars(t('dashboard.libvirt.bridge')) ?></label>
+                            <input type="text" id="libvirtBridge" name="libvirt_bridge" value="<?= htmlspecialchars($savedLibvirt['bridge']) ?>" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,14}" maxlength="15" placeholder="<?= htmlspecialchars(t('dashboard.libvirt.bridge.placeholder')) ?>">
+                        </div>
+                        <div class="form-group">
+                            <label for="libvirtMac"><?= htmlspecialchars(t('dashboard.libvirt.mac')) ?></label>
+                            <input type="text" id="libvirtMac" name="libvirt_mac" value="<?= htmlspecialchars($savedLibvirt['mac']) ?>" pattern="([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}" placeholder="<?= htmlspecialchars(t('dashboard.libvirt.mac.placeholder')) ?>">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-top: 8px;">
+                        <label for="libvirtDiskPath"><?= htmlspecialchars(t('dashboard.libvirt.disk_path')) ?></label>
+                        <input type="text" id="libvirtDiskPath" name="libvirt_disk_path" value="<?= htmlspecialchars($savedLibvirt['disk_path']) ?>" pattern="/[A-Za-z0-9._/-]+\.qcow2" placeholder="<?= htmlspecialchars(t('dashboard.libvirt.disk_path.placeholder')) ?>">
+                    </div>
+                    <div class="libvirt-features">
+                        <label class="package-item" style="min-width: auto;">
+                            <input type="checkbox" name="libvirt_secure_boot" value="1" <?= $savedLibvirt['secure_boot'] ? 'checked' : '' ?>>
+                            <span><?= htmlspecialchars(t('dashboard.libvirt.secure_boot')) ?></span>
+                        </label>
+                        <label class="package-item" style="min-width: auto;">
+                            <input type="checkbox" name="libvirt_graphic_console" value="1" <?= $savedLibvirt['graphic_console'] ? 'checked' : '' ?>>
+                            <span><?= htmlspecialchars(t('dashboard.libvirt.graphic_console')) ?></span>
+                        </label>
+                        <label class="package-item" style="min-width: auto;">
+                            <input type="checkbox" name="libvirt_memballoon" value="1" <?= $savedLibvirt['memballoon'] ? 'checked' : '' ?>>
+                            <span><?= htmlspecialchars(t('dashboard.libvirt.memballoon')) ?></span>
+                        </label>
+                    </div>
                     </div>
                     
                     <div class="action-buttons" style="margin-top: 12px; padding-top: 10px; border-top: 1px solid #ddd;">
@@ -779,6 +841,7 @@ $currentLang = getLanguage();
             'builds.delete_confirm': <?= json_encode(t('dashboard.builds.delete_confirm')) ?>,
             'builds.download_iso': <?= json_encode(t('dashboard.builds.download_iso')) ?>,
             'builds.download_qcow2': <?= json_encode(t('dashboard.builds.download_qcow2')) ?>,
+            'builds.download_xml': <?= json_encode(t('dashboard.builds.download_xml')) ?>,
             'target.iso': <?= json_encode(t('dashboard.target.iso')) ?>,
             'target.qcow2': <?= json_encode(t('dashboard.target.qcow2')) ?>,
             'import.progress': <?= json_encode(t('dashboard.import.progress')) ?>,
@@ -837,7 +900,7 @@ $currentLang = getLanguage();
                             '<th style="width: 90px;">' + translations['builds.ref'] + '</th>' +
                             '<th style="width: 90px;">' + translations['builds.status'] + '</th>' +
                             '<th style="width: 130px;">' + translations['builds.date'] + '</th>' +
-                            '<th style="width: 180px;">' + translations['builds.actions'] + '</th>' +
+                            '<th style="width: 260px;">' + translations['builds.actions'] + '</th>' +
                             '</tr></thead><tbody>' +
                             builds.map(b => {
                                 const statusClass = getStatusClass(b.status);
@@ -858,6 +921,9 @@ $currentLang = getLanguage();
                                         ? translations['builds.download_qcow2']
                                         : translations['builds.download_iso'];
                                     actions += ' | <a href="download.php?id=' + encodeURIComponent(b.id) + '" style="color: #28a745;">' + downloadLabel + '</a>';
+                                    if (b.has_xml) {
+                                        actions += ' | <a href="download.php?id=' + encodeURIComponent(b.id) + '&type=xml" style="color: #17a2b8;">' + translations['builds.download_xml'] + '</a>';
+                                    }
                                 }
                                 
                                 const buildIdDisplay = b.user ? `${b.id} (${b.user})` : b.id;
@@ -938,8 +1004,40 @@ $currentLang = getLanguage();
             if (diskInput) {
                 diskInput.required = !isIso;
             }
+            ['libvirt_name', 'libvirt_vcpu', 'libvirt_memory', 'libvirt_bridge', 'libvirt_mac', 'libvirt_disk_path'].forEach((name) => {
+                const input = document.querySelector('input[name="' + name + '"]');
+                if (input) {
+                    input.required = !isIso;
+                }
+            });
         }
         updateTargetOptions();
+
+        (function syncLibvirtFields() {
+            const hostnameInput = document.querySelector('input[name="hostname"]');
+            const nameInput = document.getElementById('libvirtName');
+            const diskInput = document.getElementById('libvirtDiskPath');
+            if (!hostnameInput || !nameInput || !diskInput) {
+                return;
+            }
+            const defaultPath = (name) => '/var/lib/libvirt/images/' + name + '.qcow2';
+            let lastName = nameInput.value;
+            hostnameInput.addEventListener('input', () => {
+                if (nameInput.value === lastName) {
+                    nameInput.value = hostnameInput.value;
+                    if (diskInput.value === defaultPath(lastName)) {
+                        diskInput.value = defaultPath(nameInput.value);
+                    }
+                    lastName = nameInput.value;
+                }
+            });
+            nameInput.addEventListener('input', () => {
+                if (diskInput.value === defaultPath(lastName)) {
+                    diskInput.value = defaultPath(nameInput.value);
+                }
+                lastName = nameInput.value;
+            });
+        })();
 
         function setRepoRefMessage(text, color) {
             const messageDiv = document.getElementById('repoRefMessage');

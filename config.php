@@ -527,23 +527,431 @@ function isValidVmDiskSize(string $size): bool
     return (bool) preg_match('/^\d+[KMGT]$/i', $size);
 }
 
+function isValidLibvirtDomainName(string $name): bool
+{
+    return (bool) preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/', $name);
+}
+
+function isValidLibvirtMacAddress(string $mac): bool
+{
+    return (bool) preg_match('/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/', $mac);
+}
+
+function isValidLibvirtUuid(string $uuid): bool
+{
+    return (bool) preg_match('/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/', $uuid);
+}
+
+function isValidLibvirtBridgeName(string $name): bool
+{
+    return (bool) preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,14}$/', $name);
+}
+
+function isValidLibvirtDiskPath(string $path): bool
+{
+    if (str_contains($path, '..')) {
+        return false;
+    }
+    return (bool) preg_match('#^/(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+\.qcow2$#', $path);
+}
+
+function generateLibvirtMacAddress(): string
+{
+    $bytes = random_bytes(3);
+    return sprintf('52:54:00:%02x:%02x:%02x', ord($bytes[0]), ord($bytes[1]), ord($bytes[2]));
+}
+
+function generateLibvirtUuid(): string
+{
+    $data = random_bytes(16);
+    $data[6] = chr((ord($data[6]) & 0x0f) | 0x40);
+    $data[8] = chr((ord($data[8]) & 0x3f) | 0x80);
+    return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
+}
+
+function uuidFromSeed(string $seed): string
+{
+    $hex = md5($seed);
+    $hex[12] = '4';
+    $variants = ['8', '9', 'a', 'b'];
+    $hex[16] = $variants[hexdec($hex[16]) % 4];
+    return sprintf(
+        '%s-%s-%s-%s-%s',
+        substr($hex, 0, 8),
+        substr($hex, 8, 4),
+        substr($hex, 12, 4),
+        substr($hex, 16, 4),
+        substr($hex, 20, 12)
+    );
+}
+
+function macFromSeed(string $seed): string
+{
+    $hex = md5($seed);
+    return sprintf(
+        '52:54:00:%s:%s:%s',
+        substr($hex, 0, 2),
+        substr($hex, 2, 2),
+        substr($hex, 4, 2)
+    );
+}
+
+function defaultLibvirtDiskPath(string $domainName): string
+{
+    return '/var/lib/libvirt/images/' . $domainName . '.qcow2';
+}
+
+function libvirtTruthy($value): bool
+{
+    return $value === true || $value === 1 || $value === '1' || $value === 'on';
+}
+
+/**
+ * Options libvirt par défaut, alignées sur guest.xml.j2 (VM non-RT).
+ *
+ * @return array{
+ *   name: string,
+ *   uuid: string,
+ *   vcpu: int,
+ *   memory: int,
+ *   bridge: string,
+ *   mac: string,
+ *   disk_path: string,
+ *   secure_boot: bool,
+ *   graphic_console: bool,
+ *   memballoon: bool
+ * }
+ */
+function defaultLibvirtOptions(string $hostname, ?string $stableSeed = null): array
+{
+    $name = isValidLibvirtDomainName($hostname) ? $hostname : 'seapath-vm';
+    return [
+        'name' => $name,
+        'uuid' => $stableSeed ? uuidFromSeed($stableSeed) : generateLibvirtUuid(),
+        'vcpu' => 1,
+        'memory' => 2048,
+        'bridge' => 'br0',
+        'mac' => $stableSeed ? macFromSeed($stableSeed) : generateLibvirtMacAddress(),
+        'disk_path' => defaultLibvirtDiskPath($name),
+        'secure_boot' => true,
+        'graphic_console' => false,
+        'memballoon' => false,
+    ];
+}
+
+/**
+ * Normalise les champs libvirt (formulaire, build_options.json ou config.json).
+ *
+ * @param array<string, mixed> $input
+ * @return array{
+ *   name: string,
+ *   uuid: string,
+ *   vcpu: int,
+ *   memory: int,
+ *   bridge: string,
+ *   mac: string,
+ *   disk_path: string,
+ *   secure_boot: bool,
+ *   graphic_console: bool,
+ *   memballoon: bool
+ * }
+ */
+function normalizeLibvirtOptions(array $input, string $fallbackHostname, ?string $stableSeed = null): array
+{
+    $defaults = defaultLibvirtOptions($fallbackHostname, $stableSeed);
+
+    $name = trim((string) ($input['name'] ?? ''));
+    if (!isValidLibvirtDomainName($name)) {
+        $name = $defaults['name'];
+    }
+
+    $vcpu = (int) ($input['vcpu'] ?? $defaults['vcpu']);
+    if ($vcpu < 1 || $vcpu > 128) {
+        $vcpu = $defaults['vcpu'];
+    }
+
+    $memory = (int) ($input['memory'] ?? $defaults['memory']);
+    if ($memory < 128 || $memory > 1048576) {
+        $memory = $defaults['memory'];
+    }
+
+    $bridge = trim((string) ($input['bridge'] ?? ''));
+    if (!isValidLibvirtBridgeName($bridge)) {
+        $bridge = $defaults['bridge'];
+    }
+
+    $mac = strtolower(trim((string) ($input['mac'] ?? '')));
+    if (!isValidLibvirtMacAddress($mac)) {
+        $mac = $defaults['mac'];
+    }
+
+    $diskPath = trim((string) ($input['disk_path'] ?? ''));
+    if (!isValidLibvirtDiskPath($diskPath)) {
+        $diskPath = defaultLibvirtDiskPath($name);
+    }
+
+    $uuid = trim((string) ($input['uuid'] ?? ''));
+    if (!isValidLibvirtUuid($uuid)) {
+        $uuid = $defaults['uuid'];
+    }
+
+    return [
+        'name' => $name,
+        'uuid' => $uuid,
+        'vcpu' => $vcpu,
+        'memory' => $memory,
+        'bridge' => $bridge,
+        'mac' => $mac,
+        'disk_path' => $diskPath,
+        'secure_boot' => array_key_exists('secure_boot', $input)
+            ? libvirtTruthy($input['secure_boot'])
+            : $defaults['secure_boot'],
+        'graphic_console' => array_key_exists('graphic_console', $input)
+            ? libvirtTruthy($input['graphic_console'])
+            : $defaults['graphic_console'],
+        'memballoon' => array_key_exists('memballoon', $input)
+            ? libvirtTruthy($input['memballoon'])
+            : $defaults['memballoon'],
+    ];
+}
+
+/**
+ * @param array<string, mixed> $post
+ * @return array{
+ *   name: string,
+ *   uuid: string,
+ *   vcpu: int,
+ *   memory: int,
+ *   bridge: string,
+ *   mac: string,
+ *   disk_path: string,
+ *   secure_boot: bool,
+ *   graphic_console: bool,
+ *   memballoon: bool
+ * }
+ */
+function libvirtOptionsFromRequest(array $post, string $hostname): array
+{
+    return normalizeLibvirtOptions([
+        'name' => $post['libvirt_name'] ?? '',
+        'vcpu' => $post['libvirt_vcpu'] ?? 1,
+        'memory' => $post['libvirt_memory'] ?? 2048,
+        'bridge' => $post['libvirt_bridge'] ?? 'br0',
+        'mac' => $post['libvirt_mac'] ?? '',
+        'disk_path' => $post['libvirt_disk_path'] ?? '',
+        'secure_boot' => !empty($post['libvirt_secure_boot']),
+        'graphic_console' => !empty($post['libvirt_graphic_console']),
+        'memballoon' => !empty($post['libvirt_memballoon']),
+    ], $hostname);
+}
+
+/**
+ * Sous-ensemble persisté dans build_options.json (pas d'UUID : il est figé au build).
+ *
+ * @param array<string, mixed> $options
+ * @return array<string, mixed>
+ */
+function libvirtOptionsForStorage(array $options): array
+{
+    return [
+        'name' => $options['name'],
+        'vcpu' => $options['vcpu'],
+        'memory' => $options['memory'],
+        'bridge' => $options['bridge'],
+        'mac' => $options['mac'],
+        'disk_path' => $options['disk_path'],
+        'secure_boot' => $options['secure_boot'],
+        'graphic_console' => $options['graphic_console'],
+        'memballoon' => $options['memballoon'],
+    ];
+}
+
+/**
+ * @param array<string, mixed> $config
+ * @return array{
+ *   name: string,
+ *   uuid: string,
+ *   vcpu: int,
+ *   memory: int,
+ *   bridge: string,
+ *   mac: string,
+ *   disk_path: string,
+ *   secure_boot: bool,
+ *   graphic_console: bool,
+ *   memballoon: bool
+ * }
+ */
+function getLibvirtOptionsFromConfig(array $config, string $buildId): array
+{
+    $hostname = trim((string) ($config['hostname'] ?? 'seapath-host'));
+    $saved = $config['libvirt'] ?? [];
+    if (!is_array($saved)) {
+        $saved = [];
+    }
+    return normalizeLibvirtOptions($saved, $hostname, $buildId);
+}
+
+function qcow2DownloadFilename(array $libvirt, string $buildId): string
+{
+    $base = basename((string) ($libvirt['disk_path'] ?? ''));
+    if (preg_match('/^[A-Za-z0-9._-]+\.qcow2$/', $base)) {
+        return $base;
+    }
+    $name = (string) ($libvirt['name'] ?? '');
+    if (isValidLibvirtDomainName($name)) {
+        return $name . '.qcow2';
+    }
+    return 'debian-' . $buildId . '.qcow2';
+}
+
+function libvirtXmlDownloadFilename(array $libvirt, string $buildId): string
+{
+    $name = (string) ($libvirt['name'] ?? '');
+    if (isValidLibvirtDomainName($name)) {
+        return $name . '.xml';
+    }
+    return 'debian-' . $buildId . '.xml';
+}
+
+function xmlEscape(string $value): string
+{
+    return htmlspecialchars($value, ENT_XML1 | ENT_QUOTES, 'UTF-8');
+}
+
+/**
+ * XML de domaine libvirt prêt à l'emploi, calqué sur guest.xml.j2 (profil non-RT).
+ *
+ * @param array<string, mixed> $options
+ */
+function generateLibvirtDomainXml(array $options): string
+{
+    $name = xmlEscape((string) $options['name']);
+    $uuid = xmlEscape((string) $options['uuid']);
+    $vcpu = (int) $options['vcpu'];
+    $memory = (int) $options['memory'];
+    $diskPath = xmlEscape((string) $options['disk_path']);
+    $bridge = xmlEscape((string) $options['bridge']);
+    $mac = xmlEscape((string) $options['mac']);
+    $secureBoot = !empty($options['secure_boot']) ? 'yes' : 'no';
+
+    $graphics = '';
+    if (!empty($options['graphic_console'])) {
+        $graphics = <<<'XML'
+        <graphics type="vnc" port="-1" autoport="yes" listen="127.0.0.1">
+            <listen type="address" address="127.0.0.1"/>
+        </graphics>
+        <video>
+            <model type="virtio" heads="1" primary="yes"/>
+        </video>
+        <input type="tablet" bus="usb"/>
+
+XML;
+    }
+
+    if (!empty($options['memballoon'])) {
+        $balloon = <<<'XML'
+        <memballoon model="virtio">
+          <stats period="5" />
+        </memballoon>
+XML;
+    } else {
+        $balloon = '        <memballoon model="none" />';
+    }
+
+    return <<<XML
+<!-- Generated by ISOBuilder for SEAPATH -->
+<domain type="kvm">
+    <name>{$name}</name>
+    <uuid>{$uuid}</uuid>
+    <description>SEAPATH guest</description>
+    <vcpu placement="static">{$vcpu}</vcpu>
+    <memory unit="MiB">{$memory}</memory>
+    <currentMemory unit="MiB">{$memory}</currentMemory>
+    <os firmware="efi">
+        <type arch="x86_64" machine="q35">hvm</type>
+        <boot dev="hd" />
+        <bootmenu enable="no" />
+        <bios useserial="yes" rebootTimeout="0" />
+        <smbios mode="emulate" />
+        <firmware>
+            <feature enabled="{$secureBoot}" name="secure-boot"/>
+        </firmware>
+    </os>
+    <features>
+        <acpi />
+        <apic />
+        <vmport state="off" />
+    </features>
+    <cpu mode="host-model" check="partial">
+        <model fallback="allow" />
+    </cpu>
+    <clock offset="utc">
+        <timer name="rtc" tickpolicy="catchup" />
+        <timer name="pit" tickpolicy="delay" />
+        <timer name="hpet" present="no" />
+    </clock>
+    <on_poweroff>destroy</on_poweroff>
+    <on_reboot>restart</on_reboot>
+    <on_crash>destroy</on_crash>
+    <pm>
+        <suspend-to-mem enabled="no" />
+        <suspend-to-disk enabled="no" />
+    </pm>
+    <devices>
+        <emulator>/usr/bin/qemu-system-x86_64</emulator>
+{$graphics}        <disk type="file" device="disk">
+           <driver name="qemu" type="qcow2"/>
+           <source file="{$diskPath}"/>
+           <target dev="vda" bus="virtio"/>
+        </disk>
+        <interface type="bridge">
+            <source bridge="{$bridge}"/>
+            <mac address="{$mac}"/>
+            <model type="virtio"/>
+        </interface>
+        <controller type="pci" index="0" model="pcie-root" />
+        <serial type="pty">
+            <target type="isa-serial" port="0">
+                <model name="isa-serial" />
+            </target>
+        </serial>
+        <console type="pty">
+            <target type="serial" port="0" />
+        </console>
+{$balloon}
+        <watchdog model="i6300esb" action="poweroff" />
+    </devices>
+</domain>
+
+XML;
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function loadBuildConfig(string $buildPath, ?array $config = null): array
+{
+    if (is_array($config)) {
+        return $config;
+    }
+    $configFile = $buildPath . '/config.json';
+    if (is_readable($configFile)) {
+        $decoded = json_decode((string) file_get_contents($configFile), true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+    }
+    return [];
+}
+
 /**
  * Décrit l'artefact produit par un build (fichier, extension, nom de téléchargement).
  *
- * @return array{target: string, file: string, download_filename: string, extension: string}
+ * @return array{target: string, file: string, download_filename: string, extension: string, has_xml: bool}
  */
 function getBuildArtifactInfo(string $buildPath, ?array $config = null): array
 {
-    if ($config === null) {
-        $configFile = $buildPath . '/config.json';
-        $config = [];
-        if (is_readable($configFile)) {
-            $decoded = json_decode((string) file_get_contents($configFile), true);
-            if (is_array($decoded)) {
-                $config = $decoded;
-            }
-        }
-    }
+    $config = loadBuildConfig($buildPath, $config);
 
     $target = normalizeBuildTarget($config['target'] ?? null);
     $qcow2File = $buildPath . '/output.qcow2';
@@ -560,11 +968,17 @@ function getBuildArtifactInfo(string $buildPath, ?array $config = null): array
 
     $buildId = basename($buildPath);
     if ($target === 'qcow2') {
+        $hasXml = isset($config['libvirt']) && is_array($config['libvirt']);
+        $downloadFilename = 'debian-' . $buildId . '.qcow2';
+        if ($hasXml) {
+            $downloadFilename = qcow2DownloadFilename(getLibvirtOptionsFromConfig($config, $buildId), $buildId);
+        }
         return [
             'target' => 'qcow2',
             'file' => $qcow2File,
-            'download_filename' => 'debian-' . $buildId . '.qcow2',
+            'download_filename' => $downloadFilename,
             'extension' => 'qcow2',
+            'has_xml' => $hasXml,
         ];
     }
 
@@ -573,6 +987,7 @@ function getBuildArtifactInfo(string $buildPath, ?array $config = null): array
         'file' => $isoFile,
         'download_filename' => 'debian-' . $buildId . '.iso',
         'extension' => 'iso',
+        'has_xml' => false,
     ];
 }
 
