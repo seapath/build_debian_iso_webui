@@ -25,14 +25,7 @@ if ($downloadType === 'xml') {
     }
 
     $libvirt = getLibvirtOptionsFromConfig($config, $buildId);
-    $xml = generateLibvirtDomainXml($libvirt);
-    $filename = libvirtXmlDownloadFilename($libvirt, $buildId);
-
-    header('Content-Type: application/xml; charset=UTF-8');
-    header('Content-Disposition: attachment; filename="' . $filename . '"');
-    header('Content-Length: ' . strlen($xml));
-    echo $xml;
-    exit;
+    sendLibvirtXmlDownload($libvirt, $buildId);
 }
 
 if (!file_exists($artifact['file'])) {

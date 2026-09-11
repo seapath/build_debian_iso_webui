@@ -616,10 +616,10 @@ function libvirtTruthy($value): bool
  *   memory: int,
  *   bridge: string,
  *   mac: string,
+ *   include_file_disk: bool,
  *   disk_path: string,
  *   secure_boot: bool,
- *   graphic_console: bool,
- *   memballoon: bool
+ *   graphic_console: bool
  * }
  */
 function defaultLibvirtOptions(string $hostname, ?string $stableSeed = null): array
@@ -632,10 +632,10 @@ function defaultLibvirtOptions(string $hostname, ?string $stableSeed = null): ar
         'memory' => 2048,
         'bridge' => 'br0',
         'mac' => $stableSeed ? macFromSeed($stableSeed) : generateLibvirtMacAddress(),
+        'include_file_disk' => true,
         'disk_path' => defaultLibvirtDiskPath($name),
         'secure_boot' => true,
         'graphic_console' => false,
-        'memballoon' => false,
     ];
 }
 
@@ -650,10 +650,10 @@ function defaultLibvirtOptions(string $hostname, ?string $stableSeed = null): ar
  *   memory: int,
  *   bridge: string,
  *   mac: string,
+ *   include_file_disk: bool,
  *   disk_path: string,
  *   secure_boot: bool,
- *   graphic_console: bool,
- *   memballoon: bool
+ *   graphic_console: bool
  * }
  */
 function normalizeLibvirtOptions(array $input, string $fallbackHostname, ?string $stableSeed = null): array
@@ -702,6 +702,9 @@ function normalizeLibvirtOptions(array $input, string $fallbackHostname, ?string
         'memory' => $memory,
         'bridge' => $bridge,
         'mac' => $mac,
+        'include_file_disk' => array_key_exists('include_file_disk', $input)
+            ? libvirtTruthy($input['include_file_disk'])
+            : $defaults['include_file_disk'],
         'disk_path' => $diskPath,
         'secure_boot' => array_key_exists('secure_boot', $input)
             ? libvirtTruthy($input['secure_boot'])
@@ -709,9 +712,6 @@ function normalizeLibvirtOptions(array $input, string $fallbackHostname, ?string
         'graphic_console' => array_key_exists('graphic_console', $input)
             ? libvirtTruthy($input['graphic_console'])
             : $defaults['graphic_console'],
-        'memballoon' => array_key_exists('memballoon', $input)
-            ? libvirtTruthy($input['memballoon'])
-            : $defaults['memballoon'],
     ];
 }
 
@@ -724,29 +724,30 @@ function normalizeLibvirtOptions(array $input, string $fallbackHostname, ?string
  *   memory: int,
  *   bridge: string,
  *   mac: string,
+ *   include_file_disk: bool,
  *   disk_path: string,
  *   secure_boot: bool,
- *   graphic_console: bool,
- *   memballoon: bool
+ *   graphic_console: bool
  * }
  */
 function libvirtOptionsFromRequest(array $post, string $hostname): array
 {
     return normalizeLibvirtOptions([
         'name' => $post['libvirt_name'] ?? '',
+        'uuid' => $post['libvirt_uuid'] ?? '',
         'vcpu' => $post['libvirt_vcpu'] ?? 1,
         'memory' => $post['libvirt_memory'] ?? 2048,
         'bridge' => $post['libvirt_bridge'] ?? 'br0',
         'mac' => $post['libvirt_mac'] ?? '',
+        'include_file_disk' => !empty($post['libvirt_include_file_disk']),
         'disk_path' => $post['libvirt_disk_path'] ?? '',
         'secure_boot' => !empty($post['libvirt_secure_boot']),
         'graphic_console' => !empty($post['libvirt_graphic_console']),
-        'memballoon' => !empty($post['libvirt_memballoon']),
     ], $hostname);
 }
 
 /**
- * Sous-ensemble persisté dans build_options.json (pas d'UUID : il est figé au build).
+ * Options persistées dans build_options.json / config.json.
  *
  * @param array<string, mixed> $options
  * @return array<string, mixed>
@@ -755,14 +756,15 @@ function libvirtOptionsForStorage(array $options): array
 {
     return [
         'name' => $options['name'],
+        'uuid' => $options['uuid'],
         'vcpu' => $options['vcpu'],
         'memory' => $options['memory'],
         'bridge' => $options['bridge'],
         'mac' => $options['mac'],
+        'include_file_disk' => $options['include_file_disk'],
         'disk_path' => $options['disk_path'],
         'secure_boot' => $options['secure_boot'],
         'graphic_console' => $options['graphic_console'],
-        'memballoon' => $options['memballoon'],
     ];
 }
 
@@ -775,10 +777,10 @@ function libvirtOptionsForStorage(array $options): array
  *   memory: int,
  *   bridge: string,
  *   mac: string,
+ *   include_file_disk: bool,
  *   disk_path: string,
  *   secure_boot: bool,
- *   graphic_console: bool,
- *   memballoon: bool
+ *   graphic_console: bool
  * }
  */
 function getLibvirtOptionsFromConfig(array $config, string $buildId): array
@@ -793,9 +795,11 @@ function getLibvirtOptionsFromConfig(array $config, string $buildId): array
 
 function qcow2DownloadFilename(array $libvirt, string $buildId): string
 {
-    $base = basename((string) ($libvirt['disk_path'] ?? ''));
-    if (preg_match('/^[A-Za-z0-9._-]+\.qcow2$/', $base)) {
-        return $base;
+    if (!empty($libvirt['include_file_disk'])) {
+        $base = basename((string) ($libvirt['disk_path'] ?? ''));
+        if (preg_match('/^[A-Za-z0-9._-]+\.qcow2$/', $base)) {
+            return $base;
+        }
     }
     $name = (string) ($libvirt['name'] ?? '');
     if (isValidLibvirtDomainName($name)) {
@@ -829,7 +833,6 @@ function generateLibvirtDomainXml(array $options): string
     $uuid = xmlEscape((string) $options['uuid']);
     $vcpu = (int) $options['vcpu'];
     $memory = (int) $options['memory'];
-    $diskPath = xmlEscape((string) $options['disk_path']);
     $bridge = xmlEscape((string) $options['bridge']);
     $mac = xmlEscape((string) $options['mac']);
     $secureBoot = !empty($options['secure_boot']) ? 'yes' : 'no';
@@ -848,14 +851,17 @@ function generateLibvirtDomainXml(array $options): string
 XML;
     }
 
-    if (!empty($options['memballoon'])) {
-        $balloon = <<<'XML'
-        <memballoon model="virtio">
-          <stats period="5" />
-        </memballoon>
+    $diskXml = '';
+    if (!empty($options['include_file_disk'])) {
+        $diskPath = xmlEscape((string) $options['disk_path']);
+        $diskXml = <<<XML
+        <disk type="file" device="disk">
+           <driver name="qemu" type="qcow2"/>
+           <source file="{$diskPath}"/>
+           <target dev="vda" bus="virtio"/>
+        </disk>
+
 XML;
-    } else {
-        $balloon = '        <memballoon model="none" />';
     }
 
     return <<<XML
@@ -899,12 +905,7 @@ XML;
     </pm>
     <devices>
         <emulator>/usr/bin/qemu-system-x86_64</emulator>
-{$graphics}        <disk type="file" device="disk">
-           <driver name="qemu" type="qcow2"/>
-           <source file="{$diskPath}"/>
-           <target dev="vda" bus="virtio"/>
-        </disk>
-        <interface type="bridge">
+{$graphics}{$diskXml}        <interface type="bridge">
             <source bridge="{$bridge}"/>
             <mac address="{$mac}"/>
             <model type="virtio"/>
@@ -918,12 +919,27 @@ XML;
         <console type="pty">
             <target type="serial" port="0" />
         </console>
-{$balloon}
+        <memballoon model="none" />
         <watchdog model="i6300esb" action="poweroff" />
     </devices>
 </domain>
 
 XML;
+}
+
+/**
+ * @param array<string, mixed> $libvirt
+ */
+function sendLibvirtXmlDownload(array $libvirt, string $buildId = 'preview'): void
+{
+    $xml = generateLibvirtDomainXml($libvirt);
+    $filename = libvirtXmlDownloadFilename($libvirt, $buildId);
+
+    header('Content-Type: application/xml; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Content-Length: ' . strlen($xml));
+    echo $xml;
+    exit;
 }
 
 /**

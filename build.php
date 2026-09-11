@@ -17,7 +17,7 @@ $sessionUserCustomizationPath = getSessionUserCustomizationPath();
 // Ne créer le répertoire de build que si on lance vraiment une build
 $buildId = null;
 $buildPath = null;
-if ($action !== 'save_only') {
+if ($action !== 'save_only' && $action !== 'download_xml') {
     $buildId = generateBuildId();
     $buildPath = BUILDS_PATH . '/' . $buildId;
     // Créer le répertoire de build (pour logs, artefacts, etc.)
@@ -166,6 +166,10 @@ $buildOptions = [
 ];
 file_put_contents($buildOptionsFile, json_encode($buildOptions, JSON_PRETTY_PRINT));
 
+if ($action === 'download_xml') {
+    sendLibvirtXmlDownload($libvirtOptions);
+}
+
 // Si on veut juste sauvegarder sans lancer la build
 if ($action === 'save_only') {
     header('Location: dashboard.php?saved=1');
@@ -182,9 +186,7 @@ $config = [
     'repo_ref' => getSelectedRepoRef(),
 ];
 if ($target === 'qcow2') {
-    $libvirtForBuild = $libvirtOptions;
-    $libvirtForBuild['uuid'] = generateLibvirtUuid();
-    $config['libvirt'] = $libvirtForBuild;
+    $config['libvirt'] = libvirtOptionsForStorage($libvirtOptions);
 }
 file_put_contents($buildPath . '/config.json', json_encode($config, JSON_PRETTY_PRINT));
 
