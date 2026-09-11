@@ -488,6 +488,19 @@ $currentLang = getLanguage();
             gap: 6px;
             margin-top: 8px;
         }
+        .libvirt-mac-row {
+            display: flex;
+            gap: 8px;
+            flex: 1;
+            min-width: 0;
+        }
+        .libvirt-mac-row input {
+            flex: 1;
+            min-width: 0;
+        }
+        .libvirt-download {
+            margin-top: 12px;
+        }
         @media (max-width: 768px) {
             .network-grid,
             .libvirt-grid {
@@ -748,6 +761,7 @@ $currentLang = getLanguage();
 
                     <h3><?= htmlspecialchars(t('dashboard.libvirt')) ?></h3>
                     <p class="libvirt-help"><?= htmlspecialchars(t('dashboard.libvirt.help')) ?></p>
+                    <input type="hidden" name="libvirt_uuid" value="<?= htmlspecialchars($savedLibvirt['uuid']) ?>">
                     <div class="form-group">
                         <label for="libvirtName"><?= htmlspecialchars(t('dashboard.libvirt.name')) ?></label>
                         <input type="text" id="libvirtName" name="libvirt_name" value="<?= htmlspecialchars($savedLibvirt['name']) ?>" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,62}" maxlength="63" title="<?= htmlspecialchars(t('dashboard.libvirt.name.placeholder')) ?>" placeholder="<?= htmlspecialchars(t('dashboard.libvirt.name.placeholder')) ?>">
@@ -767,10 +781,21 @@ $currentLang = getLanguage();
                         </div>
                         <div class="form-group">
                             <label for="libvirtMac"><?= htmlspecialchars(t('dashboard.libvirt.mac')) ?></label>
-                            <input type="text" id="libvirtMac" name="libvirt_mac" value="<?= htmlspecialchars($savedLibvirt['mac']) ?>" pattern="([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}" placeholder="<?= htmlspecialchars(t('dashboard.libvirt.mac.placeholder')) ?>">
+                            <div class="libvirt-mac-row">
+                                <input type="text" id="libvirtMac" name="libvirt_mac" value="<?= htmlspecialchars($savedLibvirt['mac']) ?>" pattern="([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}" placeholder="<?= htmlspecialchars(t('dashboard.libvirt.mac.placeholder')) ?>">
+                                <button type="button" class="btn btn-secondary" onclick="regenerateLibvirtMac()" title="<?= htmlspecialchars(t('dashboard.libvirt.mac.regenerate')) ?>">↻</button>
+                            </div>
                         </div>
                     </div>
-                    <div class="form-group" style="margin-top: 8px;">
+                    <p class="libvirt-help"><?= htmlspecialchars(t('dashboard.libvirt.mac.help')) ?></p>
+                    <div class="form-group">
+                        <label class="package-item" style="min-width: auto;">
+                            <input type="checkbox" id="libvirtIncludeFileDisk" name="libvirt_include_file_disk" value="1" <?= $savedLibvirt['include_file_disk'] ? 'checked' : '' ?> onchange="updateLibvirtDiskPathVisibility()">
+                            <span><?= htmlspecialchars(t('dashboard.libvirt.include_file_disk')) ?></span>
+                        </label>
+                    </div>
+                    <p class="libvirt-help"><?= htmlspecialchars(t('dashboard.libvirt.include_file_disk.help')) ?></p>
+                    <div id="libvirtDiskPathRow" class="form-group"<?= $savedLibvirt['include_file_disk'] ? '' : ' style="display:none"' ?>>
                         <label for="libvirtDiskPath"><?= htmlspecialchars(t('dashboard.libvirt.disk_path')) ?></label>
                         <input type="text" id="libvirtDiskPath" name="libvirt_disk_path" value="<?= htmlspecialchars($savedLibvirt['disk_path']) ?>" pattern="/[A-Za-z0-9._/-]+\.qcow2" placeholder="<?= htmlspecialchars(t('dashboard.libvirt.disk_path.placeholder')) ?>">
                     </div>
@@ -783,10 +808,9 @@ $currentLang = getLanguage();
                             <input type="checkbox" name="libvirt_graphic_console" value="1" <?= $savedLibvirt['graphic_console'] ? 'checked' : '' ?>>
                             <span><?= htmlspecialchars(t('dashboard.libvirt.graphic_console')) ?></span>
                         </label>
-                        <label class="package-item" style="min-width: auto;">
-                            <input type="checkbox" name="libvirt_memballoon" value="1" <?= $savedLibvirt['memballoon'] ? 'checked' : '' ?>>
-                            <span><?= htmlspecialchars(t('dashboard.libvirt.memballoon')) ?></span>
-                        </label>
+                    </div>
+                    <div class="libvirt-download">
+                        <button type="submit" name="action" value="download_xml" class="btn btn-secondary"><?= htmlspecialchars(t('dashboard.libvirt.download_xml')) ?></button>
                     </div>
                     </div>
                     
@@ -1004,14 +1028,40 @@ $currentLang = getLanguage();
             if (diskInput) {
                 diskInput.required = !isIso;
             }
-            ['libvirt_name', 'libvirt_vcpu', 'libvirt_memory', 'libvirt_bridge', 'libvirt_mac', 'libvirt_disk_path'].forEach((name) => {
+            ['libvirt_name', 'libvirt_vcpu', 'libvirt_memory', 'libvirt_bridge', 'libvirt_mac'].forEach((name) => {
                 const input = document.querySelector('input[name="' + name + '"]');
                 if (input) {
                     input.required = !isIso;
                 }
             });
+            updateLibvirtDiskPathVisibility();
         }
         updateTargetOptions();
+
+        function updateLibvirtDiskPathVisibility() {
+            const include = document.getElementById('libvirtIncludeFileDisk');
+            const row = document.getElementById('libvirtDiskPathRow');
+            const input = document.getElementById('libvirtDiskPath');
+            const target = document.querySelector('input[name="target"]:checked')?.value || 'iso';
+            const showPath = !!(include && include.checked);
+            if (row) {
+                row.style.display = showPath ? '' : 'none';
+            }
+            if (input) {
+                input.required = target === 'qcow2' && showPath;
+            }
+        }
+
+        function regenerateLibvirtMac() {
+            const input = document.getElementById('libvirtMac');
+            if (!input) {
+                return;
+            }
+            const bytes = new Uint8Array(3);
+            crypto.getRandomValues(bytes);
+            const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join(':');
+            input.value = '52:54:00:' + hex;
+        }
 
         (function syncLibvirtFields() {
             const hostnameInput = document.querySelector('input[name="hostname"]');
