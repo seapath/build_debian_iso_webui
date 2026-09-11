@@ -498,8 +498,20 @@ $currentLang = getLanguage();
             flex: 1;
             min-width: 0;
         }
-        .libvirt-download {
-            margin-top: 12px;
+        .libvirt-guest-nic {
+            font-family: monospace;
+            font-weight: bold;
+            font-size: 0.9em;
+            padding: 6px 0;
+        }
+        .remote-nic-hint {
+            margin: 6px 0 0 0;
+            font-size: 0.75em;
+            color: #666;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
         }
         @media (max-width: 768px) {
             .network-grid,
@@ -661,7 +673,7 @@ $currentLang = getLanguage();
                     <div class="network-grid">
                         <div class="form-group">
                             <label><?= htmlspecialchars(t('dashboard.REMOTENIC')) ?></label>
-                            <input type="text" name="REMOTENIC" value="<?= htmlspecialchars($formREMOTENIC) ?>" placeholder="<?= htmlspecialchars(t('dashboard.REMOTENIC.placeholder')) ?>">
+                            <input type="text" name="REMOTENIC" id="remoteNicField" value="<?= htmlspecialchars($formREMOTENIC) ?>" placeholder="<?= htmlspecialchars(t('dashboard.REMOTENIC.placeholder')) ?>">
                         </div>
                         
                         <div class="form-group">
@@ -679,6 +691,10 @@ $currentLang = getLanguage();
                             <input type="text" name="REMOTEVLANID" value="<?= htmlspecialchars($formREMOTEVLANID) ?>" placeholder="<?= htmlspecialchars(t('dashboard.REMOTEVLANID.placeholder')) ?>">
                         </div>
                     </div>
+                    <p id="remoteNicQcow2Hint" class="remote-nic-hint"<?= $savedTarget === 'qcow2' ? '' : ' style="display:none"' ?>>
+                        <span><?= htmlspecialchars(t('dashboard.REMOTENIC.qcow2_hint', ['name' => libvirtGuestNicName()])) ?></span>
+                        <button type="button" class="btn btn-secondary" style="font-size: 0.75em; padding: 4px 8px;" onclick="useLibvirtGuestNic()"><?= htmlspecialchars(t('dashboard.REMOTENIC.use_guest_nic', ['name' => libvirtGuestNicName()])) ?></button>
+                    </p>
                 </div>
                 
                 <div class="form-section">
@@ -780,6 +796,10 @@ $currentLang = getLanguage();
                             <input type="text" id="libvirtBridge" name="libvirt_bridge" value="<?= htmlspecialchars($savedLibvirt['bridge']) ?>" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,14}" maxlength="15" placeholder="<?= htmlspecialchars(t('dashboard.libvirt.bridge.placeholder')) ?>">
                         </div>
                         <div class="form-group">
+                            <label><?= htmlspecialchars(t('dashboard.libvirt.guest_nic')) ?></label>
+                            <span class="libvirt-guest-nic"><?= htmlspecialchars(libvirtGuestNicName()) ?></span>
+                        </div>
+                        <div class="form-group">
                             <label for="libvirtMac"><?= htmlspecialchars(t('dashboard.libvirt.mac')) ?></label>
                             <div class="libvirt-mac-row">
                                 <input type="text" id="libvirtMac" name="libvirt_mac" value="<?= htmlspecialchars($savedLibvirt['mac']) ?>" pattern="([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}" placeholder="<?= htmlspecialchars(t('dashboard.libvirt.mac.placeholder')) ?>">
@@ -787,6 +807,7 @@ $currentLang = getLanguage();
                             </div>
                         </div>
                     </div>
+                    <p class="libvirt-help"><?= htmlspecialchars(t('dashboard.libvirt.guest_nic.help', ['name' => libvirtGuestNicName()])) ?></p>
                     <p class="libvirt-help"><?= htmlspecialchars(t('dashboard.libvirt.mac.help')) ?></p>
                     <div class="form-group">
                         <label class="package-item" style="min-width: auto;">
@@ -885,6 +906,7 @@ $currentLang = getLanguage();
             'repo_ref.list_error': <?= json_encode(t('dashboard.repo_ref.list_error')) ?>
         };
         const currentRepoRef = <?= json_encode($selectedRepoRef) ?>;
+        const libvirtGuestNicName = <?= json_encode(libvirtGuestNicName()) ?>;
         
         function getStatusLabel(status, queuePosition) {
             const labels = {
@@ -1035,6 +1057,10 @@ $currentLang = getLanguage();
                 }
             });
             updateLibvirtDiskPathVisibility();
+            const remoteNicHint = document.getElementById('remoteNicQcow2Hint');
+            if (remoteNicHint) {
+                remoteNicHint.style.display = isIso ? 'none' : '';
+            }
         }
         updateTargetOptions();
 
@@ -1061,6 +1087,14 @@ $currentLang = getLanguage();
             crypto.getRandomValues(bytes);
             const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join(':');
             input.value = '52:54:00:' + hex;
+        }
+
+        function useLibvirtGuestNic() {
+            const input = document.getElementById('remoteNicField');
+            if (input) {
+                input.value = libvirtGuestNicName;
+                input.focus();
+            }
         }
 
         (function syncLibvirtFields() {
